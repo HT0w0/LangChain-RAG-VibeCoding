@@ -301,32 +301,45 @@ python backend/scripts/prompt_cache_probe.py # prompt 缓存到底命中没有 �
 - Node.js 18+
 - 阿里云百炼 API Key（[控制台](https://bailian.console.aliyun.com/)）
 
-### 最短路径
+### 最短路径(Windows:双击 `start.bat`)
+
+先装一次依赖:
 
 ```bash
-# 1. 后端依赖
 python -m venv .venv
 .venv/Scripts/activate          # Windows
 # source .venv/bin/activate      # macOS / Linux
 pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple   # 默认不装 torch
-cp .env.example .env             # 填入 DASHSCOPE_API_KEY
+cp .env.example .env             # 填 DASHSCOPE_API_KEY
+cd frontend && npm install && cd ..
+```
 
-# 2. 写入示例商品资料(建表 + 建管理员 + 7 份文档,可重复跑)
-python backend/scripts/seed_data.py
+之后**双击 `start.bat`** 就行。它会检查环境、写入示例商品资料、起后端和前端、
+打开浏览器,并且把两个服务的日志按 `[后端]` / `[前端]` 前缀打在一个窗口里,
+Ctrl+C 一起停。
 
-# 3. 起服务(两个终端)
-uvicorn app.main:app --reload --app-dir backend
-cd frontend && npm install && npm run dev
+```
+start.bat --check          只检查环境(缺什么、怎么补,会直接印出来)
+start.bat --reload         后端改代码自动重启
+start.bat --no-browser     不自动开浏览器
+```
+
+不用 Windows、或者想自己控制:
+
+```bash
+python backend/scripts/dev.py            # 同一个启动器,跨平台
+uvicorn app.main:app --reload --app-dir backend   # 或者照旧分成两个终端
+cd frontend && npm run dev
 ```
 
 打开 http://localhost:5173,用 `admin` / `123456` 登录,勾上「示例商品资料」,
 然后问「RX9070 显卡多少钱」。
 
-> **第 2 步不是可选的。** 没有它,打开的是一个空壳:知识库列表是空的、
+> **示例数据不是可选的。** 没有它,打开的是一个空壳:知识库列表是空的、
 > 问什么都答「资料中没有找到相关内容」——而那**看起来像系统坏了**,
-> 不像「系统还没内容」,两者在界面上长得一模一样。
->
-> `--reset` 会先删掉同名知识库再重建(只删这一个库,不碰账号和其他库)。
+> 不像「系统还没内容」,两者在界面上长得一模一样。启动器每次都跑一遍
+> `seed_data.py`,它自己是幂等的(已存在就一秒返回);要重建加 `--reset`,
+> 那只删这一个库,不碰账号和其他库。
 
 ### 平台自检(可选,但建议先跑)
 
@@ -376,6 +389,7 @@ pip install -e ".[local]"
 ## 项目结构
 
 ```
+start.bat                     一键启动(Windows,纯 ASCII——见文件头说明)
 backend/
   app/
     main.py                  应用装配
@@ -387,12 +401,14 @@ backend/
     providers/  base(Protocol) · llm · embedding · reranker
     indexing/   chunking · bm25 · vectorstore · fusion
   tests/
-  scripts/      seed_data.py(示例数据) · check_api.py · smoke_e2e.py · benchmark.py
+  scripts/      dev.py(一键启动) · seed_data.py(示例数据)
+                check_api.py · smoke_e2e.py · benchmark.py
                 semantic_probe.py · rerank_probe.py · prompt_cache_probe.py
 frontend/
   src/
     api/          client · endpoints · sse · citations · errors · chat · types
-    components/   AnswerText(引用替换) · SourceCards · AppLayout · RequireAuth
+    components/   AnswerText(引用替换) · SourceCards · SidebarList
+                  AppLayout · RequireAuth
     pages/        Login · Register · Chat · KnowledgeBases · Users · Metrics · Profile
     store/        auth.tsx(登录状态 + token 还原)
 data/           app.db · chroma/ · uploads/   (gitignored)

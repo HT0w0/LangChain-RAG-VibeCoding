@@ -62,7 +62,7 @@ export function MetricsPage() {
   }))
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size={16}>
+    <Space orientation="vertical" style={{ width: '100%' }} size={16}>
       <Space>
         <Segmented
           options={WINDOWS}

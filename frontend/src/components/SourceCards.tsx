@@ -33,7 +33,7 @@ export function SourceCards({ sources, highlighted }: SourceCardsProps) {
   }
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size={8}>
+    <Space orientation="vertical" style={{ width: '100%' }} size={8}>
       {sources.map((source) => {
         const active = highlighted === source.index
         return (

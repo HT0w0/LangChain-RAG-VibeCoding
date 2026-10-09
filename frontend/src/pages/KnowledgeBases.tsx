@@ -15,9 +15,9 @@ import {
   Button,
   Card,
   Empty,
+  Flex,
   Form,
   Input,
-  List,
   Modal,
   Popconfirm,
   Space,
@@ -34,6 +34,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import { kbApi } from '../api/endpoints'
 import type { ChunkPreviewPage, DocumentOut, DocumentStatus, KBOut } from '../api/types'
+import { SidebarList } from '../components/SidebarList'
 
 //: 非终态:还会自己往前走的状态。终态是 `ready` 与 `failed`。
 const IN_FLIGHT: DocumentStatus[] = ['pending', 'parsing', 'embedding']
@@ -136,57 +137,41 @@ export function KnowledgeBasesPage() {
           </Button>
         }
       >
-        <List
-          size="small"
-          dataSource={kbs}
-          locale={{ emptyText: '还没有知识库' }}
-          renderItem={(kb) => (
-            <List.Item
-              style={{
-                cursor: 'pointer',
-                paddingInline: 8,
-                background: selected?.id === kb.id ? '#f0f7ff' : undefined,
-              }}
-              onClick={() => setSelected(kb)}
-              actions={[
-                <Popconfirm
-                  key="del"
-                  title={`删除「${kb.name}」?`}
-                  description="其中的文档、分块和索引都会一并删除,不可恢复。"
-                  onConfirm={async (event) => {
-                    event?.stopPropagation()
-                    try {
-                      await kbApi.remove(kb.id)
-                      if (selected?.id === kb.id) {
-                        setSelected(null)
-                        setDocs([])
-                      }
-                      await loadKbs()
-                      void message.success('已删除')
-                    } catch (err) {
-                      void message.error(err instanceof ApiError ? err.message : '删除失败')
+        <SidebarList
+          empty="还没有知识库"
+          items={kbs.map((kb) => ({
+            key: kb.id,
+            title: kb.name,
+            subtitle: `${kb.doc_count} 篇 · ${kb.chunk_count} 块`,
+            selected: selected?.id === kb.id,
+            onSelect: () => setSelected(kb),
+            action: (
+              <Popconfirm
+                title={`删除「${kb.name}」?`}
+                description="其中的文档、分块和索引都会一并删除,不可恢复。"
+                onConfirm={async () => {
+                  try {
+                    await kbApi.remove(kb.id)
+                    if (selected?.id === kb.id) {
+                      setSelected(null)
+                      setDocs([])
                     }
-                  }}
-                >
-                  <a onClick={(event) => event.stopPropagation()}>删</a>
-                </Popconfirm>,
-              ]}
-            >
-              <List.Item.Meta
-                title={<Typography.Text strong={selected?.id === kb.id}>{kb.name}</Typography.Text>}
-                description={
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {kb.doc_count} 篇 · {kb.chunk_count} 块
-                  </Typography.Text>
-                }
-              />
-            </List.Item>
-          )}
+                    await loadKbs()
+                    void message.success('已删除')
+                  } catch (err) {
+                    void message.error(err instanceof ApiError ? err.message : '删除失败')
+                  }
+                }}
+              >
+                <a>删</a>
+              </Popconfirm>
+            ),
+          }))}
         />
       </Card>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <Space direction="vertical" style={{ width: '100%' }} size={16}>
+        <Space orientation="vertical" style={{ width: '100%' }} size={16}>
           {error && <Alert type="error" message={error} showIcon closable onClose={() => setError('')} />}
 
           {selected === null ? (
@@ -241,7 +226,7 @@ export function KnowledgeBasesPage() {
                     title: '文件名',
                     dataIndex: 'filename',
                     render: (value: string, row) => (
-                      <Space direction="vertical" size={0}>
+                      <Space orientation="vertical" size={0}>
                         <Typography.Text>{value}</Typography.Text>
                         {row.error && (
                           <Typography.Text type="danger" style={{ fontSize: 12 }}>
@@ -370,22 +355,20 @@ export function KnowledgeBasesPage() {
           <Typography.Text strong>分块是检索的最小单位</Typography.Text>
           ——答案溯源到的那「一条资料」就是其中一块。
         </Typography.Paragraph>
-        <List
-          size="small"
-          dataSource={preview?.items ?? []}
-          renderItem={(chunk) => (
-            <List.Item>
-              <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  第 {chunk.chunk_index + 1} 块 · {chunk.token_count} token
-                </Typography.Text>
-                <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
-                  {chunk.content}
-                </Typography.Paragraph>
-              </Space>
-            </List.Item>
-          )}
-        />
+        <Flex orientation="vertical" gap={12}>
+          {(preview?.items ?? []).map((chunk) => (
+            <div key={chunk.id}>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                第 {chunk.chunk_index + 1} 块 · {chunk.token_count} token
+              </Typography.Text>
+              {/* `pre-wrap` 是必须的:分块正文里有换行,不保留的话表格类
+                  的资料会被压成一行,读不了。 */}
+              <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
+                {chunk.content}
+              </Typography.Paragraph>
+            </div>
+          ))}
+        </Flex>
       </Modal>
     </div>
   )

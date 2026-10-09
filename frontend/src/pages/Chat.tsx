@@ -13,13 +13,14 @@
  *    是一段被截断的回答,用户看不出来。
  */
 
-import { Alert, Button, Card, Empty, Input, List, Space, Spin, Typography, message } from 'antd'
+import { Alert, Button, Card, Empty, Input, Space, Spin, Typography, message } from 'antd'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import { streamChat } from '../api/chat'
 import { kbApi, sessionApi } from '../api/endpoints'
 import type { KBOption, MessageOut, SessionOut, SourceRef } from '../api/types'
 import { AnswerText } from '../components/AnswerText'
+import { SidebarList } from '../components/SidebarList'
 import { SourceCards } from '../components/SourceCards'
 
 interface Draft {
@@ -194,46 +195,35 @@ export function ChatPage() {
           </Button>
         }
       >
-        <List
-          size="small"
-          dataSource={sessions}
-          locale={{ emptyText: '还没有会话' }}
-          renderItem={(item) => (
-            <List.Item
-              style={{ cursor: 'pointer', paddingInline: 8 }}
-              onClick={() => void openSession(item.id)}
-              actions={[
-                <a
-                  key="del"
-                  onClick={async (event) => {
-                    event.stopPropagation()
-                    await sessionApi.remove(item.id)
-                    if (item.id === currentId) {
-                      setCurrentId(null)
-                      setMessages([])
-                    }
-                    await refreshSessions()
-                    void message.success('已删除')
-                  }}
-                >
-                  删
-                </a>,
-              ]}
-            >
-              <Typography.Text
-                ellipsis
-                strong={item.id === currentId}
-                style={{ maxWidth: 150 }}
+        <SidebarList
+          empty="还没有会话"
+          items={sessions.map((item) => ({
+            key: item.id,
+            title: item.title || `会话 ${item.id}`,
+            subtitle: `${item.message_count} 条消息`,
+            selected: item.id === currentId,
+            onSelect: () => void openSession(item.id),
+            action: (
+              <a
+                onClick={async () => {
+                  await sessionApi.remove(item.id)
+                  if (item.id === currentId) {
+                    setCurrentId(null)
+                    setMessages([])
+                  }
+                  await refreshSessions()
+                  void message.success('已删除')
+                }}
               >
-                {item.title || `会话 ${item.id}`}
-              </Typography.Text>
-            </List.Item>
-          )}
+                删
+              </a>
+            ),
+          }))}
         />
       </Card>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <Space direction="vertical" style={{ width: '100%' }} size={16}>
+        <Space orientation="vertical" style={{ width: '100%' }} size={16}>
           {error && <Alert type="error" message={error} showIcon closable onClose={() => setError('')} />}
 
           {messages.length === 0 && draft === null ? (
@@ -331,7 +321,7 @@ function Composer({ busy, kbOptions, scope, onScopeChange, onSend, onStop }: Com
 
   return (
     <Card size="small">
-      <Space direction="vertical" style={{ width: '100%' }}>
+      <Space orientation="vertical" style={{ width: '100%' }}>
         {kbOptions.length > 0 && (
           <Space size={4} wrap>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>

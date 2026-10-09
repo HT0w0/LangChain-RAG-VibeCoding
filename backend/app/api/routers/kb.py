@@ -28,8 +28,6 @@ from app.db import base as db_base
 from app.db.models import Document, DocumentStatus, KnowledgeBase, User
 from app.db.repositories.document import ChunkRepository, DocumentRepository
 from app.db.repositories.knowledge_base import KnowledgeBaseRepository
-from app.indexing.vectorstore import build_vector_store
-from app.providers.embedding import build_embedder
 from app.schemas.kb import (
     ChunkPreview,
     ChunkPreviewPage,
@@ -40,7 +38,7 @@ from app.schemas.kb import (
     KBOut,
     KBUpdateRequest,
 )
-from app.services.ingest import IngestService, store_upload
+from app.services.ingest import build_ingest_service, store_upload
 from app.services.parsing import classify
 
 logger = logging.getLogger(__name__)
@@ -96,39 +94,6 @@ async def _get_doc_or_404(session: AsyncSession, doc_id: int) -> Document:
     if doc is None:
         raise NotFoundError("文档不存在", doc_id=doc_id)
     return doc
-
-
-def _build_ingest(session: AsyncSession, settings: Settings) -> IngestService:
-    """构造本次摄取用的服务。
-
-    **编码器在这里也套一层向量缓存**,和 `chat.get_rag_service` 那边同一个
-    包装器。这一侧才是收益最大的地方:一次上传就是几百个分块,而商品文案
-    里重复句式很多。两边只装一处也不会报错——问答侧装上、这里漏掉,表现
-    只是「入库比预期慢」,而没有任何断言会红,所以 `test_kb` 里专门有一条
-    按分块数核对缓存条目的用例。
-
-    **缓存借用调用方这个事务(`CacheStore.on(session)`),而不是另开会话。**
-    这不是省一次开会话:摄取一边往 `chunks` 里写、一边要编码,那个未提交的
-    写事务持着 SQLite 的写锁,另开会话的缓存写入**拿不到锁**,而持锁的事务
-    要等编码结束才提交——**死锁**,`busy_timeout` 只能把失败推迟 5 秒。
-    实测症状是「上传的文档莫名变成 failed」,报错在日志里是一句与缓存看不出
-    关系的 `database is locked`。
-
-    代价是缓存的可见性跟着摄取事务走:摄取回滚,那批向量也不落库。这是可
-    接受的——向量只是 (文本, 模型) 的函数,下次重算即可;而反过来的选择
-    (另开会话)根本跑不通。
-    """
-    from app.services.cache import CachedEmbedder, CacheStore
-
-    store = CacheStore.on(session)
-    return IngestService(
-        session,
-        settings,
-        embedder=CachedEmbedder(
-            inner=build_embedder(settings), store=store, settings=settings
-        ),
-        vector_store=build_vector_store(settings),
-    )
 
 
 @admin_router.post(
@@ -196,7 +161,7 @@ async def delete_kb(
     settings: Settings = Depends(get_settings_dep),
 ) -> None:
     kb = await _get_kb_or_404(session, kb_id)
-    await _build_ingest(session, settings).delete_knowledge_base(kb)
+    await build_ingest_service(session, settings).delete_knowledge_base(kb)
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +277,7 @@ async def upload_documents(
 async def _ingest_in_background(doc_ids: list[int], settings: Settings) -> None:
     """后台逐篇摄取。一篇失败不影响其余的。"""
     async with db_base.database.session() as session:
-        service = _build_ingest(session, settings)
+        service = build_ingest_service(session, settings)
         for doc_id in doc_ids:
             doc = await DocumentRepository(session).get_by_id(doc_id)
             if doc is None:  # 上传后、处理前被删掉了
@@ -345,7 +310,7 @@ async def delete_document(
     settings: Settings = Depends(get_settings_dep),
 ) -> None:
     doc = await _get_doc_or_404(session, doc_id)
-    await _build_ingest(session, settings).delete_document(doc)
+    await build_ingest_service(session, settings).delete_document(doc)
 
 
 @docs_router.post(

@@ -106,6 +106,48 @@ def sanitize_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def build_ingest_service(session: AsyncSession, settings: Settings) -> IngestService:
+    """构造一次摄取用的服务。
+
+    **放在服务层而不是上传路由里**,因为调用方不止一个:上传接口、
+    重建索引、删除、以及 `scripts/seed_data.py`。留在路由里的话,脚本
+    要么去 import 一个私有函数,要么自己拼一遍——而自己拼的那一份
+    迟早会和这一份漂开(漏掉缓存包装、漏掉向量库配置),症状还只是
+    「慢一点」或者「写进了另一个 collection」。
+
+    **编码器在这里套一层向量缓存**,和 `chat.get_rag_service` 那边同一个
+    包装器。这一侧才是收益最大的地方:一次上传就是几百个分块,而商品文案
+    里重复句式很多。两边只装一处也不会报错——问答侧装上、这里漏掉,表现
+    只是「入库比预期慢」,而没有任何断言会红,所以 `test_kb` 里专门有一条
+    按分块数核对缓存条目的用例。
+
+    **缓存借用调用方这个事务(`CacheStore.on(session)`),而不是另开会话。**
+    这不是省一次开会话:摄取一边往 `chunks` 里写、一边要编码,那个未提交的
+    写事务持着 SQLite 的写锁,另开会话的缓存写入**拿不到锁**,而持锁的事务
+    要等编码结束才提交——**死锁**,`busy_timeout` 只能把失败推迟 5 秒。
+    实测症状是「上传的文档莫名变成 failed」,报错在日志里是一句与缓存看不出
+    关系的 `database is locked`。
+
+    代价是缓存的可见性跟着摄取事务走:摄取回滚,那批向量也不落库。这是可
+    接受的——向量只是 (文本, 模型) 的函数,下次重算即可;而反过来的选择
+    (另开会话)根本跑不通。
+    """
+    # 延迟 import:`cache` 与 `vectorstore` 都要拖进 chromadb,
+    # 而模块级的循环 import 在这里是真实存在的风险。
+    from app.indexing.vectorstore import build_vector_store
+    from app.providers.embedding import build_embedder
+    from app.services.cache import CachedEmbedder, CacheStore
+
+    return IngestService(
+        session,
+        settings,
+        embedder=CachedEmbedder(
+            inner=build_embedder(settings), store=CacheStore.on(session), settings=settings
+        ),
+        vector_store=build_vector_store(settings),
+    )
+
+
 class IngestService:
     def __init__(
         self,

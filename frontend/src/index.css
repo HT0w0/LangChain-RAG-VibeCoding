@@ -34,6 +34,25 @@ body {
   background: #bae0ff;
 }
 
+/* 侧栏的一行(见 components/SidebarList.tsx)。
+   放在 CSS 里而不是内联样式,是因为要的是 `:hover`——内联样式写不了伪类。 */
+.sidebar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.sidebar-row:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.sidebar-row-selected {
+  background: #f0f7ff;
+}
+
 /* 回答正文里的段落间距比 antd 默认的紧一些:解答类文字通常是一小段
    一小段的,默认行距会让一屏只放得下两三段。 */
 .answer-text p {

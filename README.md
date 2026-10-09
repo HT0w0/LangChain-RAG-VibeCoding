@@ -301,23 +301,38 @@ python backend/scripts/prompt_cache_probe.py # prompt 缓存到底命中没有 �
 - Node.js 18+
 - 阿里云百炼 API Key（[控制台](https://bailian.console.aliyun.com/)）
 
-### 后端
+### 最短路径
 
 ```bash
+# 1. 后端依赖
 python -m venv .venv
 .venv/Scripts/activate          # Windows
 # source .venv/bin/activate      # macOS / Linux
-
 pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple   # 默认不装 torch
 cp .env.example .env             # 填入 DASHSCOPE_API_KEY
 
-python backend/scripts/check_api.py   # 先验证平台能力
+# 2. 写入示例商品资料(建表 + 建管理员 + 7 份文档,可重复跑)
+python backend/scripts/seed_data.py
+
+# 3. 起服务(两个终端)
 uvicorn app.main:app --reload --app-dir backend
+cd frontend && npm install && npm run dev
 ```
 
-> **国内网络务必加 `-i` 镜像源。** 直连 PyPI 实测会卡在解析/下载阶段十几分钟不动
-> （进程 CPU 时间只有 1 秒，纯粹等网络）。换清华源后同样的依赖一两分钟装完。
-> 换源是一次性的，也可以写成配置：`pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple`
+打开 http://localhost:5173,用 `admin` / `123456` 登录,勾上「示例商品资料」,
+然后问「RX9070 显卡多少钱」。
+
+> **第 2 步不是可选的。** 没有它,打开的是一个空壳:知识库列表是空的、
+> 问什么都答「资料中没有找到相关内容」——而那**看起来像系统坏了**,
+> 不像「系统还没内容」,两者在界面上长得一模一样。
+>
+> `--reset` 会先删掉同名知识库再重建(只删这一个库,不碰账号和其他库)。
+
+### 平台自检(可选,但建议先跑)
+
+```bash
+python backend/scripts/check_api.py   # 验证 key、模型名、embedding 批量上限
+```
 
 - API 文档：http://127.0.0.1:8000/docs
 - 健康检查：http://127.0.0.1:8000/api/health/ready
@@ -325,18 +340,20 @@ uvicorn app.main:app --reload --app-dir backend
 ### 前端
 
 ```bash
-cd frontend && npm install && npm run dev     # http://localhost:5173
-npm run test        # vitest(离线,不联网)
+cd frontend
+npm run dev         # http://localhost:5173
+npm run test        # vitest,离线
 npm run build       # tsc + vite build
 ```
 
 开发期由 Vite 把 `/api` 代理到 `127.0.0.1:8000`——**浏览器眼里前后端同源**,
 于是不需要任何跨域协商,SSE 也不会踩到预检请求。后端的 CORS 中间件仍然留着,
-因为生产部署时前后端常常不同源。后端要先起来。
+因为生产部署时前后端常常不同源。**后端要先起来。**
 
 > 前端**只测会静默出错的那部分**(SSE 分帧、引用编号→来源卡片的映射、
-> 错误体翻译、markdown 里的引用替换)。组件样式错了肉眼一看就知道,
-> 而上面那几处错了页面照常显示,只是显示得不对。见 `frontend/src/**/*.test.ts`。
+> 错误体翻译、markdown 里的引用替换),外加一条把整棵树挂起来、
+> 逐页渲染的冒烟。组件样式错了肉眼一看就知道,而上面那几处错了页面照常
+> 显示,只是显示得不对。见 `frontend/src/**/*.test.ts`。
 
 ### 无额度开发
 
@@ -370,7 +387,7 @@ backend/
     providers/  base(Protocol) · llm · embedding · reranker
     indexing/   chunking · bm25 · vectorstore · fusion
   tests/
-  scripts/      check_api.py · benchmark.py · smoke_e2e.py
+  scripts/      seed_data.py(示例数据) · check_api.py · smoke_e2e.py · benchmark.py
                 semantic_probe.py · rerank_probe.py · prompt_cache_probe.py
 frontend/
   src/

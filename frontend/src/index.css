@@ -1,0 +1,45 @@
+/*
+ * 只放 antd 覆盖不掉的那几处。**不要在这里重造一个设计系统**——
+ * 组件自己的样式归 antd,这里只处理「引用标记」这类 antd 里没有的东西。
+ */
+
+body {
+  margin: 0;
+  /* 中文优先的字体栈。用系统默认的话,Windows 上会退到衬线体的中文,
+     和 antd 的无衬线正文混在一起很难看。 */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+/* 正文里的引用标记。做成一个小圆角按钮而不是纯文字:
+   它是可点的,看起来就该是可点的——纯文字 `[1]` 用户不会去点。 */
+.cite-chip {
+  display: inline-block;
+  min-width: 18px;
+  height: 18px;
+  margin: 0 2px;
+  padding: 0 5px;
+  border: none;
+  border-radius: 9px;
+  background: #e6f4ff;
+  color: #1677ff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  vertical-align: text-bottom;
+}
+
+.cite-chip:hover {
+  background: #bae0ff;
+}
+
+/* 回答正文里的段落间距比 antd 默认的紧一些:解答类文字通常是一小段
+   一小段的,默认行距会让一屏只放得下两三段。 */
+.answer-text p {
+  margin-bottom: 8px;
+}
+
+.answer-text p:last-child {
+  margin-bottom: 0;
+}

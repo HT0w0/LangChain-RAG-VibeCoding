@@ -325,8 +325,18 @@ uvicorn app.main:app --reload --app-dir backend
 ### 前端
 
 ```bash
-cd frontend && npm install && npm run dev
+cd frontend && npm install && npm run dev     # http://localhost:5173
+npm run test        # vitest(离线,不联网)
+npm run build       # tsc + vite build
 ```
+
+开发期由 Vite 把 `/api` 代理到 `127.0.0.1:8000`——**浏览器眼里前后端同源**,
+于是不需要任何跨域协商,SSE 也不会踩到预检请求。后端的 CORS 中间件仍然留着,
+因为生产部署时前后端常常不同源。后端要先起来。
+
+> 前端**只测会静默出错的那部分**(SSE 分帧、引用编号→来源卡片的映射、
+> 错误体翻译、markdown 里的引用替换)。组件样式错了肉眼一看就知道,
+> 而上面那几处错了页面照常显示,只是显示得不对。见 `frontend/src/**/*.test.ts`。
 
 ### 无额度开发
 
@@ -363,7 +373,11 @@ backend/
   scripts/      check_api.py · benchmark.py · smoke_e2e.py
                 semantic_probe.py · rerank_probe.py · prompt_cache_probe.py
 frontend/
-  src/          api/ · components/ · pages/ · hooks/ · store/
+  src/
+    api/          client · endpoints · sse · citations · errors · chat · types
+    components/   AnswerText(引用替换) · SourceCards · AppLayout · RequireAuth
+    pages/        Login · Register · Chat · KnowledgeBases · Users · Metrics · Profile
+    store/        auth.tsx(登录状态 + token 还原)
 data/           app.db · chroma/ · uploads/   (gitignored)
 docs/           API-CHECK.md · BENCHMARK.md · PLATFORM-NOTES.md
                 SEMANTIC-CACHE.md · RERANK-THRESHOLD.md · PROMPT-CACHE.md
@@ -383,6 +397,7 @@ docs/           API-CHECK.md · BENCHMARK.md · PLATFORM-NOTES.md
 | `request_metrics` 的定时清理 | `purge_older_than()` 已实现且有测试，但**没接定时任务**。单机演示的量级下不构成问题；加一个不跑的后台任务反而会让人误以为已经收口 |
 | 重排阈值的规模化重扫 | 0.5 扫自 22 段语料 / 28 个问题。候选越多，「某条不相关的恰好分很高」的概率越大，而下界正是由那条决定的——**真实知识库规模下这个数只会偏高**。当前量级下它两次运行逐位可复现，所以先按测得的值用；重扫的入口是 `rerank_probe.py`，换重排模型也必须重跑 |
 | 围绕 prompt 缓存做工程改造 | 实测在生产的形状下**看不到收益**（`docs/PROMPT-CACHE.md`），而且绝对值也不大：真实链路的 prompt 只有 286 token、其中 system 244。已经把读数接进面板——**让真实流量的 `cache_read_rate` 说话**，比拿手写语料扫出来的表去改架构可信 |
+| 前端按路由拆包 | 当前单包 **1.33MB（gzip 422KB）**，几乎全是 antd。演示项目首屏快慢无所谓，而拆包要动路由结构、加 `Suspense`，收益是「有网速焦虑的人少等一秒」。真要上线，第一步是换成按需引入 + 把 `Metrics`/`Users` 这类只有管理员会进的页面动态导入 |
 
 ---
 

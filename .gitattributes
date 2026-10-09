@@ -1,0 +1,15 @@
+# 统一按 LF 入库,也按 LF 检出。
+#
+# 不加这个的话,Windows 上 git 默认会把文本转成 CRLF 检出,于是每次 `git add`
+# 都刷一屏 "LF will be replaced by CRLF" 的警告,而且同一份代码在不同机器上
+# 会显示成整文件 diff——真正的改动淹没在行尾噪音里。
+#
+# 取 `eol=lf` 而不是 `text=auto`:仓库里现有的文件本来就是 LF,这样是**保持
+# 现状**而不是引入一次全仓库的行尾改写。
+* text=auto eol=lf
+
+# 二进制文件不参与任何行尾处理
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary

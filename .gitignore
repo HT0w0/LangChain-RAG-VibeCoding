@@ -1,0 +1,39 @@
+# ---- 密钥：绝不入库 ----
+.env
+.env.*
+!.env.example
+
+# ---- 运行时数据 ----
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---- Node / 前端 ----
+node_modules/
+dist/
+.vite/
+*.local
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- 评测输出 ----
+benchmark-results/
+*.log

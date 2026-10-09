@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.schemas.common import UTCModel
+from app.schemas.common import UTCDateTime, UTCModel
 
 # 用户名允许中文:这是中文电商场景,强制英文用户名会让运营同事很难用。
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_\-一-鿿]{3,32}$")
@@ -71,8 +70,8 @@ class UserOut(UTCModel):
     username: str
     role: str
     is_active: bool
-    created_at: datetime
-    last_login_at: datetime | None = None
+    created_at: UTCDateTime
+    last_login_at: UTCDateTime | None = None
 
 
 class TokenResponse(BaseModel):

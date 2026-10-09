@@ -7,12 +7,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.schemas.common import UTCModel
+from app.schemas.common import UTCDateTime, UTCModel
 
 MAX_TITLE_LENGTH = 200
 DEFAULT_SESSION_TITLE = "新会话"
@@ -56,9 +55,9 @@ class SessionOut(UTCModel):
     title: str
     kb_ids: list[int] | None = None
     message_count: int
-    created_at: datetime
-    updated_at: datetime
-    last_message_at: datetime
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
+    last_message_at: UTCDateTime
 
 
 class SessionListResponse(UTCModel):
@@ -83,7 +82,7 @@ class MessageOut(UTCModel):
     completion_tokens: int = 0
     latency_ms: float = 0.0
     error: str | None = None
-    created_at: datetime
+    created_at: UTCDateTime
 
 
 class MessageListResponse(UTCModel):

@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.schemas.common import UTCModel
+from app.schemas.common import UTCDateTime, UTCModel
 
 MAX_KB_NAME = 128
 MAX_KB_DESCRIPTION = 512
@@ -50,8 +48,8 @@ class KBOut(UTCModel):
     created_by: int | None = None
     doc_count: int
     chunk_count: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
 
 
 class KBListResponse(UTCModel):
@@ -72,8 +70,8 @@ class DocumentOut(UTCModel):
     warnings: list[str] = Field(default_factory=list)
     chunk_count: int
     uploaded_by: int | None = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
 
 
 class DocumentListResponse(UTCModel):

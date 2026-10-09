@@ -56,6 +56,132 @@ NO_CONTEXT_ANSWER = (
     "资料中没有找到相关内容。可以换一种问法,或者确认所选知识库中是否包含这类资料。"
 )
 
+def self_answer(model_id: str) -> str:
+    """问的是助手自己时的固定答复。
+
+    **为什么要单独一条**:用户问「你是什么大模型」时 `NO_CONTEXT_ANSWER`
+    是**范畴错误**,而且它承诺了一件兑现不了的事——「换一种问法」和
+    「换个知识库」都不会让商品资料里出现助手自己的身份,用户照着做只会
+    一次次拿到同一句话。而「你是什么大模型」几乎是每个人拿到一个新 AI
+    产品后问的第一个问题。
+
+    **为什么不走模型**:理由与 `NO_CONTEXT_ANSWER` 完全一样——这一类问题
+    没有任何资料可依据,让模型自由发挥就是在允许它编自己的身世。
+
+    **但模型名必须如实报出来**,而它来自 Provider 自己报的 `model_id`,
+    不是抄一个字符串:抄的话,离线开发(`LLM_BACKEND=mock`)时它会照旧
+    宣称自己是 qwen,那是一句在这个进程里根本不成立的话。
+
+    这个区别值得说清楚——「读自己配置里的模型名」和「让模型自报家门」
+    看起来给出同一个答案,性质却完全不同:后者是**自我报告**,取决于
+    模型被怎么训练、当前 system prompt 怎么写,而模型对自己的版本经常
+    说错;前者是一个**配置事实**,它不会说谎。
+    """
+    return (
+        f"我是一个基于知识库的问答助手,背后调用的是 {model_id} 模型。"
+        "我的回答只依据知识库里已有的资料——先去你选定的知识库检索,"
+        "再依据检索到的片段作答,所以每句话都能标出来源。"
+        "知识库之外的问题,包括关于我自身的实现细节,我答不了。"
+    )
+
+#: 用来认出「问的是助手自己」的说法。
+#:
+#: **必须窄,而且刻意留了漏判。** 误伤比漏判糟得多:把「你是什么时候发货的」
+#: 这类**真正的商品问题**一起吞掉,用户丢掉的是他要的答案,而界面上看起来
+#: 像系统坏了。所以这里不写 `你是什么` 这条最宽的规则——它和「你是什么时候
+#: 发货的」共享前四个字——改成把后面可能接的词逐个列出来。代价是有人只问
+#: 「你是什么」时会落到 `NO_CONTEXT_ANSWER`;那是**少答一句**,不是答错。
+#:
+#: 按关键词而不是按语义识别,是因为这一步的全部意义就是**不去调模型**。
+_ASSISTANT_PHRASES = (
+    # 身份
+    "你是谁",
+    "你叫什么",
+    "你是什么大模型",
+    "你是什么模型",
+    "你是什么ai",
+    "你是什么智能",
+    "你是什么助手",
+    "你是什么机器人",
+    "你是什么东西",
+    "你用的什么模型",
+    "你用的哪个模型",
+    "什么大模型",
+    "哪个大模型",
+    # 能力
+    "你能做什么",
+    "你能干什么",
+    "你会做什么",
+    "你会什么",
+    "你有什么功能",
+    "你有什么能力",
+    "介绍一下你自己",
+    "自我介绍",
+)
+
+
+# 一整句话只是一句问候时的固定答复。
+#
+# **为什么问候也要单独一条**:在真实链路上问「你好」,重排会把两条商品
+# 资料打到阈值以上(一句没有内容的问候,重排拦不住),于是模型按提示词
+# 如实作答——`你好 [1][2]。` 问候本身没错,错的是那两个引用:它们
+# **支撑不了任何东西**,而来源卡片会照样渲染成两张可展开的「依据」。
+# 那比「资料中没有找到相关内容」更糟,因为它看起来像一次有据可依的回答。
+GREETING_ANSWER = (
+    "你好。我是一个基于知识库的问答助手,可以回答商品参数、售后政策、"
+    "配送与退换这类问题——比如直接问「RX9070 显卡多少钱」。"
+)
+
+#: 一整句就是这么一句问候时,它不是知识库问题。
+#:
+#: **判据是「整句话就是」,不是「包含」。** 「你好,RX9070 多少钱」是最
+#: 常见的开场方式——真实用户几乎总是寒暄和问题一起说。按包含去拦会把它
+#: 一起吞掉,而用户丢掉的是他要的答案。所以先把标点和空白去掉,再**全等**
+#: 比较。代价是「你好你好」这种叠着说的会漏判,那只是少答一句。
+_GREETINGS = frozenset(
+    {
+        "你好", "您好", "hi", "hello", "哈喽", "哈啰", "嗨", "在吗", "在么",
+        "早上好", "中午好", "下午好", "晚上好", "早安", "晚安",
+    }
+)
+
+#: 参与「去掉之后还剩下什么」的字符。标点、空白、引号——用户不会只敲
+#: 一个光秃秃的「你好」,而「你好!」和「你好」是同一句话。
+_GREETING_NOISE = frozenset(" \t\r\n,，。.!！?？~～、;；:：\"'“”‘’—-")
+
+
+def is_bare_greeting(question: str) -> bool:
+    """整句话只是一个问候语吗?**不是「包含问候语」。** 见 `_GREETINGS`。"""
+    stripped = "".join(ch for ch in question.strip().lower() if ch not in _GREETING_NOISE)
+    return stripped in _GREETINGS
+
+
+def is_about_the_assistant(question: str) -> bool:
+    """这个提问问的是助手本身,而不是知识库里的东西吗?
+
+    纯字符串匹配、不调模型——**这一步的意义就是别去调模型**。
+    """
+    text = question.strip().lower()
+    return any(phrase in text for phrase in _ASSISTANT_PHRASES)
+
+
+def answer_without_lookup(question: str, *, model_id: str) -> str | None:
+    """这句话根本不是在问知识库里的东西时,该回哪一句?
+
+    是的话返回固定答复,**不是就返回 `None`**(照常检索)。两个分支合在
+    一处,是为了让「跳过检索」这个决定只有**一个**判断点——分成两处的话,
+    `prepare()` 里一次、`stream()` 里又一次,迟早会出现「一处认了、
+    另一处不认」的中间状态。
+
+    `model_id` 由调用方从 Provider 上取(见 `RAGService.prepare`)——
+    这里不 import 配置,是为了让这个函数保持纯粹、可单独测试。
+    """
+    if is_about_the_assistant(question):
+        return self_answer(model_id)
+    if is_bare_greeting(question):
+        return GREETING_ANSWER
+    return None
+
 
 class Retriever(Protocol):
     """RAG 层需要检索层提供的能力。
@@ -248,6 +374,17 @@ class PreparedAnswer:
     # **用「缓存里有什么」而不是「要不要查缓存」来表达状态。** 后者是一个
     # 布尔量,而它表达不了「命中了、内容是什么」——`stream()` 需要的是内容。
     cached_answer: CachedAnswer | None = None
+    #: 不依赖资料的固定答复。**非 `None` 时 `stream()` 直接吐它、不调模型。**
+    #:
+    #: 与 `grounded` 的分工要分清楚,它俩在自指问题上会分开:
+    #: `grounded` 说的是「这一轮有没有依据资料」——**要报给用户的指标**,
+    #: 自指问题根本不检索,所以它是 `False`,这是对的;
+    #: 而这里是「没有资料时该说哪一句」,由**提问的类型**决定,
+    #: 自指问题该说的是自我介绍,不是「资料里没有」。
+    #:
+    #: 两者合成一个字段(用 `grounded` 兼表「说哪句」)是不行的:
+    #: `grounded` 会随 `done` 事件发给前端、进指标表,它的含义不能动。
+    fixed_answer: str | None = None
     # **是消息条数,不是轮数。** 叫 turns 会让人在指标面板上把一问一答读成
     # 「聊了 2 轮」,而真实轮数是 1——一个看着有值、实际量错对象的数据,
     # 比没有这项数据更误导。
@@ -325,6 +462,30 @@ class RAGService:
         # 「用户按下回车」之后的全部耗时,而不只是模型开始吐字之后的那段。
         started_at = time.perf_counter()
         past = list(history or [])
+
+        # -- 问的是助手自己 --------------------------------------------------
+        # **放在最前面,连缓存都不查。**
+        #
+        # 查缓存是错的:这一层要回答的是「这个问题能不能复用某条**基于资料**
+        # 的答案」,而自指问题的答案是固定的,缓不缓存都一样;更糟的是
+        # 「你是什么大模型」和「你能做什么」会被判成同一个键下的近邻,
+        # 白白占着语义缓存的额度。
+        #
+        # 跑检索也是错的:检索必然跑偏(实测「你能做什么」能召回到一条
+        # 商品资料、越过阈值),于是白白调一次模型,而模型手上只有商品
+        # 资料,只能回一句「资料中没有找到相关内容」。
+        # 模型名从 **Provider 身上取**,不是从配置抄——`DashScopeLLM` 报的是
+        # 配置里那个 `LLM_MODEL`,`MockLLM` 报的是 `mock-llm`。于是离线开发
+        # 时它不会谎称自己是 qwen。
+        fixed = answer_without_lookup(question, model_id=self._llm.model_id)
+        if fixed is not None:
+            logger.info(
+                "这句话不是在问知识库,跳过检索与模型",
+                extra=log_extra(question=question[:80]),
+            )
+            return self._fixed(
+                question, fixed, kb_ids=kb_ids, filters=filters, started_at=started_at
+            )
 
         # -- 答案缓存 --------------------------------------------------------
         # **放在最前面**:命中就一步都不往下走。放在检索之后的话,省下的只有
@@ -443,6 +604,35 @@ class RAGService:
             started_at=started_at,
         )
 
+    def _fixed(
+        self,
+        question: str,
+        answer: str,
+        *,
+        kb_ids: list[int] | None,
+        filters: RetrievalFilters | None,
+        started_at: float,
+    ) -> PreparedAnswer:
+        """不依赖资料的固定答复的 `PreparedAnswer`。**检索一步都不跑。**
+
+        `messages` / `sources` / `retrieval` 全空,是如实记录:这一轮确实
+        什么都没查。填一个假的检索结果会让人在排查时以为检索跑过。
+        """
+        return PreparedAnswer(
+            question=question,
+            messages=[],
+            sources=[],
+            bundle=ContextBundle(text="", used=[], dropped=[], tokens=0),
+            retrieval=RetrievalResult(
+                query=question, chunks=[], route_sizes={}, stage_timings={}
+            ),
+            search_query=question,
+            kb_ids=kb_ids,
+            filters=filters,
+            fixed_answer=answer,
+            started_at=started_at,
+        )
+
     def _cached(
         self,
         question: str,
@@ -509,8 +699,17 @@ class RAGService:
             return
 
         if not prepared.grounded:
-            yield TokenEvent(text=NO_CONTEXT_ANSWER)
-            yield self._done(prepared, NO_CONTEXT_ANSWER, None, started, None)
+            # **两种「没有资料」要说两句不同的话。** 知识库里确实没有的商品
+            # 问题,该说的是「换一种问法试试」;而问的是助手自己时,那句话
+            # 是个范畴错误,「换什么问法」也换不出答案来。哪一句由
+            # `fixed_answer` 带过来,判断在 `prepare()` 里做过一次。
+            answer = (
+                prepared.fixed_answer
+                if prepared.fixed_answer is not None
+                else NO_CONTEXT_ANSWER
+            )
+            yield TokenEvent(text=answer)
+            yield self._done(prepared, answer, None, started, None)
             return
 
         pieces: list[str] = []

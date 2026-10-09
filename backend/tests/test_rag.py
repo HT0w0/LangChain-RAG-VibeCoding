@@ -23,12 +23,14 @@ import pytest
 from app.providers.base import ChatChunk, ChatResult, Usage
 from app.services.context import RetrievedChunk
 from app.services.rag import (
+    GREETING_ANSWER,
     NO_CONTEXT_ANSWER,
     DoneEvent,
     ErrorEvent,
     RAGService,
     SourcesEvent,
     TokenEvent,
+    self_answer,
 )
 from app.services.retrieval import RetrievalFilters, RetrievalResult
 
@@ -1212,3 +1214,176 @@ class TestSemanticCacheIsWiredIntoRAG:
         await collect(service, await service.prepare("RX9070 显卡保修几年", kb_ids=[1]))
 
         assert len(llm.calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# 问的是助手自己
+# ---------------------------------------------------------------------------
+
+
+class TestQuestionsAboutTheAssistant:
+    """问的是助手本身时,不该按「知识库里有没有这条资料」来回答。
+
+    **这是个范畴错误,而一半的错在那句话上。** 用户问「你是什么大模型」,
+    系统答「资料中没有找到相关内容。**可以换一种问法,或者确认所选知识库中
+    是否包含这类资料**」——后半句是一个**兑现不了的承诺**:怎么换问法、
+    换哪个知识库,商品资料里都不会有助手自己的身份。用户照着做,只会
+    一次又一次拿到同一句话。
+
+    而「你是什么大模型」几乎是每个人拿到一个新 AI 产品之后问的第一个问题,
+    第一印象就是这一句。
+    """
+
+    @staticmethod
+    def _answer(events: list) -> str:
+        return next(e for e in events if isinstance(e, DoneEvent)).answer
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "你是什么大模型",
+            "你是谁",
+            "你叫什么名字",
+            "你是什么模型",
+            "你用的什么模型",
+            "你能做什么",
+            "你有什么功能",
+            "介绍一下你自己",
+        ],
+    )
+    async def test_a_question_about_the_assistant_never_touches_the_knowledge_base(
+        self, settings, question: str
+    ) -> None:
+        """**一步都不该走**:不检索、不调模型。
+
+        这既是为了答对,也是为了不白花钱——「你能做什么」在改之前会
+        **跑完检索再调一次模型**,而模型手上只有商品资料,只能回一句
+        「资料中没有找到相关内容」。
+        """
+        retriever = FakeRetriever(chunks=[chunk(1, "RX9070 的售价是 4299 元")])
+        llm = FakeLLM()
+        service = make_service(settings, retriever, llm)
+
+        events = await collect(service, await service.prepare(question, kb_ids=[1]))
+
+        assert retriever.calls == [], "自指问题不该跑检索"
+        assert llm.calls == [], "自指问题不该调模型"
+        assert self._answer(events) == self_answer("fake-llm")
+
+    async def test_the_reply_names_the_model_that_is_actually_being_called(
+        self, settings
+    ) -> None:
+        """自我介绍要**如实报出模型名**,而这个名字来自 Provider 自己报的
+        `model_id`——不是从别处抄一个字符串。
+
+        抄的话,离线开发(`LLM_BACKEND=mock`)时它会照旧宣称自己是 qwen,
+        那是一句**在这个进程里根本不成立**的话。
+
+        假 Provider 的 `model_id` 是 `fake-llm`,所以断言它出现在答复里,
+        等于断言「这个名字是从 Provider 身上拿的」——把实现写死成
+        `"qwen3.7-plus"` 就通不过。
+        """
+        llm = FakeLLM()
+        service = make_service(settings, FakeRetriever(chunks=[]), llm)
+
+        events = await collect(service, await service.prepare("你是什么大模型", kb_ids=[1]))
+
+        answer = self._answer(events)
+        assert "fake-llm" in answer
+        assert llm.calls == [], "报一个模型名不需要问模型"
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "你们的产品是什么",
+            "RX9070 是什么",
+            "这个显卡的型号是什么",
+            "退款有什么条件",
+            "你们是谁家的",
+        ],
+    )
+    async def test_a_product_question_that_merely_contains_you_is_not_hijacked(
+        self, settings, question: str
+    ) -> None:
+        """**误伤比漏判糟得多。**
+
+        按关键词识别是有代价的:把「你」当成信号,就会把「你们的产品是什么」
+        这类**真正的商品问题**一起吞掉,而那种情况下用户丢掉的是他要的答案,
+        且看起来像系统坏了。所以这里逐条钉住「像但不对」的问法。
+        """
+        retriever = FakeRetriever(chunks=[chunk(1, "RX9070 的售价是 4299 元")])
+        service = make_service(settings, retriever, FakeLLM())
+
+        await collect(service, await service.prepare(question, kb_ids=[1]))
+
+        assert retriever.calls, f"「{question}」是商品问题,该照常检索"
+
+    async def test_an_unanswerable_product_question_keeps_the_old_reply(
+        self, settings
+    ) -> None:
+        """知识库里确实没有的商品问题,答复**一个字都不变**。
+
+        这条防的是改动把原有行为一起带走:自指问题是一条新分支,
+        不该顺手改了另一条。
+        """
+        service = make_service(settings, FakeRetriever(chunks=[]), FakeLLM())
+
+        events = await collect(service, await service.prepare("你们卖洗衣机吗", kb_ids=[1]))
+
+        assert self._answer(events) == NO_CONTEXT_ANSWER
+
+
+class TestBareGreeting:
+    """一整句话只是一句问候时,它同样不是知识库问题。
+
+    **实测出来的**:在真实链路上问「你好」,重排把两条商品资料打到了 0.5
+    以上(阈值拦不住一句没有内容的问候),于是模型按提示词如实作答——
+    `你好 [1][2]。`
+
+    问候本身没错,错的是那两个引用:它们**支撑不了任何东西**,而来源卡片
+    会照样渲染成两张可展开的「依据」。这比「资料中没有找到相关内容」更糟,
+    因为它看起来像一次正常的、有据可依的回答。
+    """
+
+    @staticmethod
+    def _answer(events: list) -> str:
+        return next(e for e in events if isinstance(e, DoneEvent)).answer
+
+    @pytest.mark.parametrize(
+        "question",
+        ["你好", "您好", "你好!", "你好。", "hi", "Hello", "在吗", "早上好", " 你好  "],
+    )
+    async def test_a_bare_greeting_never_touches_the_knowledge_base(
+        self, settings, question: str
+    ) -> None:
+        retriever = FakeRetriever(chunks=[chunk(1, "RX9070 的售价是 4299 元")])
+        llm = FakeLLM()
+        service = make_service(settings, retriever, llm)
+
+        events = await collect(service, await service.prepare(question, kb_ids=[1]))
+
+        assert retriever.calls == [], f"「{question}」是问候,不该跑检索"
+        assert llm.calls == []
+        assert self._answer(events) == GREETING_ANSWER
+
+    @pytest.mark.parametrize(
+        "question",
+        ["你好,RX9070 多少钱", "您好,请问保修多久", "hi 这个显示器多少钱"],
+    )
+    async def test_a_greeting_attached_to_a_real_question_is_not_hijacked(
+        self, settings, question: str
+    ) -> None:
+        """**问候后面跟着真问题时,必须照常回答。**
+
+        这是这条规则最危险的地方:「你好」是最常见的开场,而真实用户
+        几乎总是**寒暄和问题一起说**。按「包含问候语」去拦,就会把这些
+        问题一起吞掉——用户丢掉的是他要的答案。
+
+        所以判据是「去掉标点后**整句全等**于某句问候」,不是包含。
+        """
+        retriever = FakeRetriever(chunks=[chunk(1, "RX9070 的售价是 4299 元")])
+        service = make_service(settings, retriever, FakeLLM())
+
+        await collect(service, await service.prepare(question, kb_ids=[1]))
+
+        assert retriever.calls, f"「{question}」里带着真问题,该照常检索"

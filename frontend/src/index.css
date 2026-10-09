@@ -1,18 +1,347 @@
 /*
- * 只放 antd 覆盖不掉的那几处。**不要在这里重造一个设计系统**——
- * 组件自己的样式归 antd,这里只处理「引用标记」这类 antd 里没有的东西。
+ * 这一层只做三件事:**宽度约束、垂直节奏、消息气泡**。
+ *
+ * 组件自己的样式归 antd,这里不重造一个设计系统——那会让「改一个按钮的
+ * 圆角」变成两处要找。所以下面几乎全是布局类,颜色也只用 antd 的语义变量。
  */
+
+:root {
+  --app-bg: #f4f6f9;
+  --panel-border: #e9ecf2;
+  --panel-radius: 10px;
+  --bubble-radius: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
 
 body {
   margin: 0;
+  background: var(--app-bg);
   /* 中文优先的字体栈。用系统默认的话,Windows 上会退到衬线体的中文,
      和 antd 的无衬线正文混在一起很难看。 */
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
 }
 
-/* 正文里的引用标记。做成一个小圆角按钮而不是纯文字:
-   它是可点的,看起来就该是可点的——纯文字 `[1]` 用户不会去点。 */
+/* ---------------------------------------------------------------------------
+ * 应用外壳
+ * ------------------------------------------------------------------------- */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 56px;
+  padding: 0 20px;
+  background: #0f172a;
+}
+
+.app-brand {
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.app-header .ant-menu {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border-bottom: none;
+}
+
+.app-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+}
+
+.app-user .app-logout {
+  color: inherit;
+  cursor: pointer;
+}
+
+.app-user .app-logout:hover {
+  color: #fff;
+}
+
+.app-content {
+  height: calc(100vh - 56px);
+  overflow: auto;
+  padding: 20px 24px;
+}
+
+/*: 每页的固定最大宽度。**没有它的话正文会横跨 1440px**,
+    一行的字数多到眼睛找不到下一行的开头。 */
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  height: 100%;
+}
+
+/*: 卡片里那段「为什么这么算」的说明。
+    统一给它一套间距与灰阶——散在各页里手写内联样式的话,同一个东西
+    在这页是 8px、那页是 12px,而没人会为此开一个工单。 */
+.hint {
+  display: block;
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #8c8c8c;
+}
+
+.hint strong {
+  color: #595959;
+}
+
+/* ---------------------------------------------------------------------------
+ * 面板与侧栏
+ * ------------------------------------------------------------------------- */
+
+.panel {
+  border-radius: var(--panel-radius);
+}
+
+/* 侧栏那种「列表直接铺满卡片」的场景,默认的 24px 内边距太浪费。 */
+.panel-flush .ant-card-body {
+  padding: 6px;
+}
+
+.sidebar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.sidebar-row:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.sidebar-row-selected {
+  background: #e8f1ff;
+}
+
+/* 删除是破坏性操作,但**不能藏起来**:
+   `opacity: 0` 在触屏上等于不存在(没有 hover),而且屏幕阅读器
+   仍然会念到它——用户听得到一个看不见的按钮。
+   所以平时是低对比的灰、悬停时才变红:一直在,但不抢眼。 */
+.sidebar-row-action {
+  font-size: 12px;
+  color: #c3c9d4;
+  transition: color 0.15s;
+}
+
+.sidebar-row:hover .sidebar-row-action {
+  color: #b02a37;
+}
+
+/* ---------------------------------------------------------------------------
+ * 会话页
+ * ------------------------------------------------------------------------- */
+
+.chat-shell {
+  display: flex;
+  gap: 16px;
+  height: 100%;
+}
+
+.chat-aside {
+  flex: 0 0 264px;
+  max-width: 264px;
+  /* 会话多时侧栏自己滚,而不是把整页撑长 */
+  overflow: hidden;
+}
+
+.chat-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/*: 消息区自己滚,输入框钉在下面。
+    不做成整页滚动的话,答案长起来时用户要先滚到页面底部才能开始打字。 */
+.chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 2px 8px;
+  scroll-behavior: smooth;
+}
+
+.chat-empty {
+  margin-top: 14vh;
+  color: #8c8c8c;
+}
+
+.chat-composer {
+  flex: 0 0 auto;
+}
+
+.composer-scope {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 消息气泡
+ * ------------------------------------------------------------------------- */
+
+.msg {
+  display: flex;
+  margin-bottom: 14px;
+}
+
+.msg-user {
+  justify-content: flex-end;
+}
+
+.msg-assistant {
+  justify-content: flex-start;
+}
+
+.msg-bubble {
+  max-width: 100%;
+  padding: 11px 15px;
+  border-radius: var(--bubble-radius);
+  line-height: 1.72;
+  font-size: 14px;
+}
+
+.msg-user .msg-bubble {
+  max-width: 70ch;
+  background: #1677ff;
+  color: #fff;
+  border-bottom-right-radius: 4px;
+  /* 用户输入里的换行是**有意打的**,要保留;而中文长句里的换行不该出现,
+     所以只在白空格层面保留,不强制折行。 */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.msg-assistant .msg-bubble {
+  /* 78ch 是正文的舒适宽度。再宽眼睛会找不到下一行的开头。 */
+  max-width: 78ch;
+  background: #fff;
+  border: 1px solid var(--panel-border);
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+/*: 还没吐字时的呼吸点。给一个「在动」的信号,而不是一片空白——
+    空白会被读成「没点上发送」。 */
+.msg-typing {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.msg-typing i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c3c9d4;
+  animation: msg-typing 1.2s infinite ease-in-out;
+}
+
+.msg-typing i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.msg-typing i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes msg-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+/*: 用户自己设了「减少动效」就别动。 */
+@media (prefers-reduced-motion: reduce) {
+  .msg-typing i {
+    animation: none;
+  }
+  .chat-scroll {
+    scroll-behavior: auto;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 来源折叠区
+ * ------------------------------------------------------------------------- */
+
+.source-disclosure {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--panel-border);
+}
+
+.source-disclosure-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: #fafbfc;
+  color: #5b6472;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.source-disclosure-toggle:hover {
+  border-color: #1677ff;
+  color: #1677ff;
+  background: #f0f7ff;
+}
+
+.source-disclosure-body {
+  margin-top: 10px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 回答正文
+ * ------------------------------------------------------------------------- */
+
+.answer-text p {
+  margin-bottom: 8px;
+}
+
+.answer-text p:last-child {
+  margin-bottom: 0;
+}
+
+/*: 引用标记。做成一个小圆角按钮而不是纯文字:它是可点的,
+    看起来就该是可点的——纯文字 `[1]` 用户不会去点。 */
 .cite-chip {
   display: inline-block;
   min-width: 18px;
@@ -28,37 +357,55 @@ body {
   text-align: center;
   cursor: pointer;
   vertical-align: text-bottom;
+  transition: background 0.15s;
 }
 
 .cite-chip:hover {
   background: #bae0ff;
 }
 
-/* 侧栏的一行(见 components/SidebarList.tsx)。
-   放在 CSS 里而不是内联样式,是因为要的是 `:hover`——内联样式写不了伪类。 */
-.sidebar-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  cursor: pointer;
+/* ---------------------------------------------------------------------------
+ * 登录/注册
+ * ------------------------------------------------------------------------- */
+
+.auth-page {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+  background:
+    radial-gradient(1000px 520px at 50% -10%, #e3edff 0%, transparent 70%),
+    linear-gradient(160deg, #f7f9fc 0%, #eef2f7 100%);
 }
 
-.sidebar-row:hover {
-  background: rgba(0, 0, 0, 0.04);
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  border-radius: 14px;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.08);
 }
 
-.sidebar-row-selected {
-  background: #f0f7ff;
+.auth-title {
+  margin-bottom: 4px !important;
+  text-align: center;
 }
 
-/* 回答正文里的段落间距比 antd 默认的紧一些:解答类文字通常是一小段
-   一小段的,默认行距会让一屏只放得下两三段。 */
-.answer-text p {
-  margin-bottom: 8px;
+.auth-subtitle {
+  display: block;
+  margin-bottom: 22px;
+  text-align: center;
+  font-size: 13px;
+  color: #8c8c8c;
 }
 
-.answer-text p:last-child {
-  margin-bottom: 0;
+.auth-mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 14px;
+  border-radius: 12px;
+  background: #1677ff;
+  color: #fff;
+  font-size: 20px;
 }

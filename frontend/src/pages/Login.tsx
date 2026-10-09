@@ -34,24 +34,39 @@ export function LoginPage() {
   }
 
   return (
-    <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: 24 }}>
-      <Card style={{ width: 380 }}>
-        <Typography.Title level={4} style={{ textAlign: 'center' }}>
+    <div className="auth-page">
+      <Card className="auth-card">
+        <div className="auth-mark">知</div>
+        <Typography.Title level={4} className="auth-title">
           电商知识库问答
         </Typography.Title>
+        {/* 副标题说清「这是什么」——登录页是唯一一个用户还不知道
+            这个系统能干什么的地方。 */}
+        <Typography.Text className="auth-subtitle">
+          基于企业自有资料作答,每句结论都可溯源
+        </Typography.Text>
+
         {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
         <Form<FormValues> layout="vertical" onFinish={onFinish} disabled={busy}>
-          <Form.Item name="username" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}>
-            <Input autoComplete="username" autoFocus />
+          <Form.Item
+            name="username"
+            label="用户名"
+            rules={[{ required: true, message: '请输入用户名' }]}
+          >
+            <Input size="large" autoComplete="username" autoFocus placeholder="admin" />
           </Form.Item>
-          <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
-            <Input.Password autoComplete="current-password" />
+          <Form.Item
+            name="password"
+            label="密码"
+            rules={[{ required: true, message: '请输入密码' }]}
+          >
+            <Input.Password size="large" autoComplete="current-password" />
           </Form.Item>
-          <Button type="primary" htmlType="submit" block loading={busy}>
+          <Button type="primary" size="large" htmlType="submit" block loading={busy}>
             登录
           </Button>
         </Form>
-        <div style={{ marginTop: 12, textAlign: 'center' }}>
+        <div style={{ marginTop: 14, textAlign: 'center' }}>
           <Link to="/register">没有账号?注册一个</Link>
         </div>
       </Card>

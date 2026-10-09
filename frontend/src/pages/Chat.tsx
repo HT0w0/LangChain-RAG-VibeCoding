@@ -13,15 +13,15 @@
  *    是一段被截断的回答,用户看不出来。
  */
 
-import { Alert, Button, Card, Empty, Input, Space, Spin, Typography, message } from 'antd'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Alert, Button, Card, Empty, Input, Space, Typography, message } from 'antd'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { streamChat } from '../api/chat'
 import { kbApi, sessionApi } from '../api/endpoints'
 import type { KBOption, MessageOut, SessionOut, SourceRef } from '../api/types'
-import { AnswerText } from '../components/AnswerText'
+import { MessageBubble } from '../components/MessageBubble'
 import { SidebarList } from '../components/SidebarList'
-import { SourceCards } from '../components/SourceCards'
 
 interface Draft {
   answer: string
@@ -38,7 +38,6 @@ export function ChatPage() {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [highlighted, setHighlighted] = useState<number | null>(null)
 
   //: 用 ref 而不是 state:它不参与渲染,而放进 state 会让「停止」按钮的
   //: 点击闭包里拿到一个过期的 controller。
@@ -72,6 +71,30 @@ export function ChatPage() {
       setMessages([])
     }
   }, [])
+
+  // ---- 会话 id 进 URL ------------------------------------------------
+  //
+  // **不这样做的话,刷新一次页面就丢掉正在看的会话**,回到「新会话」。
+  // 用户在长对话里按 F5(或者不小心按到)就要从侧栏里重新找回来。
+  // 顺带它也让会话可以被直接链接。
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // 挂载时按 URL 打开一次。**只在挂载时跑**:之后 URL 跟着用户的操作走,
+  // 两边互相驱动会打架。
+  const restored = useRef(false)
+  useEffect(() => {
+    if (restored.current) return
+    restored.current = true
+    const id = Number(searchParams.get('session'))
+    // `Number(null)` 是 0,`Number('abc')` 是 NaN——两个都要挡掉。
+    if (Number.isInteger(id) && id > 0) void openSession(id)
+  }, [openSession, searchParams])
+
+  useEffect(() => {
+    setSearchParams(currentId === null ? {} : { session: String(currentId) }, {
+      replace: true,
+    })
+  }, [currentId, setSearchParams])
 
   /** 拿一个可用的会话 id,没有就新建。见文件头第 1 条。 */
   const ensureSession = useCallback(async (): Promise<number> => {
@@ -159,126 +182,113 @@ export function ChatPage() {
     [ensureSession, refreshSessions, scope],
   )
 
-  const onCiteClick = useCallback((index: number) => {
-    setHighlighted(index)
-    // 滚动到对应的来源卡片。用 `scrollIntoView` 而不是算偏移量——
-    // 卡片高度随正文长短变化,算出来的位置会在长资料上偏掉。
-    document.getElementById(`source-${index}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  // 新消息进来时自动滚到底。用户刚问完一句,应该看到答复,而不是
+  // 自己往下滚——尤其在答案有几屏长的时候。
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const box = scrollRef.current
+    if (box) box.scrollTop = box.scrollHeight
+  }, [messages, draft?.answer])
+
+  const startNewSession = useCallback(() => {
+    setCurrentId(null)
+    setMessages([])
+    setDraft(null)
+    setError('')
   }, [])
 
-  const latestSources = useMemo(() => {
-    if (draft) return draft.sources
-    const last = [...messages].reverse().find((m) => m.role === 'assistant')
-    return last?.sources ?? []
-  }, [draft, messages])
-
-  const latestCited = draft?.cited ?? [...messages].reverse().find((m) => m.role === 'assistant')?.cited ?? []
-
   return (
-    <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-      <Card
-        title="会话"
-        size="small"
-        style={{ width: 260, flexShrink: 0 }}
-        extra={
-          <Button
-            size="small"
-            type="link"
-            onClick={() => {
-              setCurrentId(null)
-              setMessages([])
-              setDraft(null)
-              setError('')
-            }}
-          >
-            新建
-          </Button>
-        }
-      >
-        <SidebarList
-          empty="还没有会话"
-          items={sessions.map((item) => ({
-            key: item.id,
-            title: item.title || `会话 ${item.id}`,
-            subtitle: `${item.message_count} 条消息`,
-            selected: item.id === currentId,
-            onSelect: () => void openSession(item.id),
-            action: (
-              <a
-                onClick={async () => {
-                  await sessionApi.remove(item.id)
-                  if (item.id === currentId) {
-                    setCurrentId(null)
-                    setMessages([])
-                  }
-                  await refreshSessions()
-                  void message.success('已删除')
-                }}
-              >
-                删
-              </a>
-            ),
-          }))}
-        />
-      </Card>
+    <div className="chat-shell">
+      <aside className="chat-aside">
+        <Card
+          size="small"
+          className="panel panel-flush"
+          title="会话"
+          extra={
+            <Button type="link" size="small" onClick={startNewSession}>
+              新建
+            </Button>
+          }
+        >
+          <SidebarList
+            empty="还没有会话"
+            items={sessions.map((item) => ({
+              key: item.id,
+              title: item.title || `会话 ${item.id}`,
+              subtitle: `${item.message_count} 条消息`,
+              selected: item.id === currentId,
+              onSelect: () => void openSession(item.id),
+              action: (
+                <a
+                  className="sidebar-row-action"
+                  onClick={async () => {
+                    await sessionApi.remove(item.id)
+                    if (item.id === currentId) startNewSession()
+                    await refreshSessions()
+                    void message.success('已删除')
+                  }}
+                >
+                  删除
+                </a>
+              ),
+            }))}
+          />
+        </Card>
+      </aside>
 
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <Space orientation="vertical" style={{ width: '100%' }} size={16}>
-          {error && <Alert type="error" message={error} showIcon closable onClose={() => setError('')} />}
+      <section className="chat-main">
+        <div className="chat-scroll" ref={scrollRef}>
+          {error && (
+            <Alert
+              type="error"
+              message={error}
+              showIcon
+              closable
+              onClose={() => setError('')}
+              style={{ marginBottom: 12 }}
+            />
+          )}
 
           {messages.length === 0 && draft === null ? (
-            <Card>
-              <Empty description="在下面输入你的问题,答案会标注引用了哪几条资料" />
-            </Card>
+            <Empty
+              className="chat-empty"
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                <span>
+                  问点什么吧。答案只依据知识库里的资料,
+                  <br />
+                  每句话都标出来源,点开就能核对原文。
+                </span>
+              }
+            />
           ) : null}
 
           {messages.map((item) => (
-            <Card key={item.id} size="small">
-              <Typography.Text type="secondary">
-                {item.role === 'user' ? '你' : '助手'}
-              </Typography.Text>
-              <div style={{ marginTop: 8 }}>
-                {item.role === 'assistant' ? (
-                  <AnswerText
-                    content={item.content}
-                    sources={item.sources}
-                    onCiteClick={onCiteClick}
-                  />
-                ) : (
-                  <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
-                    {item.content}
-                  </Typography.Paragraph>
-                )}
-              </div>
-              {item.role === 'assistant' && item.sources.length > 0 && (
-                <div style={{ marginTop: 12 }}>
-                  <SourceCards sources={item.sources} highlighted={highlighted} />
-                </div>
-              )}
-            </Card>
+            <MessageBubble
+              key={item.id}
+              role={item.role}
+              content={item.content}
+              sources={item.sources}
+              idPrefix={`m${item.id}`}
+            />
           ))}
 
           {draft && (
-            <Card size="small">
-              <Typography.Text type="secondary">助手</Typography.Text>
-              <div style={{ marginTop: 8 }}>
-                {draft.answer ? (
-                  <AnswerText content={draft.answer} sources={draft.sources} onCiteClick={onCiteClick} />
-                ) : (
-                  <Spin size="small" />
-                )}
-              </div>
-              {draft.sources.length > 0 && (
-                <div style={{ marginTop: 12 }}>
-                  {/* 来源卡片**在流式过程中就渲染**——服务端刻意先发 sources
-                      再流 token,就是为了这个。等 done 才显示的话,那个设计
-                      白做了。 */}
-                  <SourceCards sources={draft.sources} highlighted={highlighted} />
-                </div>
-              )}
-            </Card>
+            // 流式中:**只显示答案,不显示来源**。服务端确实先发 `sources`
+            // 再流 token,但那是传输顺序;答案还没写完就铺开一屏来源卡片,
+            // 会把用户真正在等的东西挤下去。`sources` 仍然要传——正文里的
+            // `[1]` 要靠它才知道上界,不然流式过程中引用标记渲染不出来。
+            <MessageBubble
+              role="assistant"
+              content={draft.answer}
+              sources={draft.sources}
+              streaming
+              idPrefix="draft"
+            />
           )}
+        </div>
 
+        <div className="chat-composer">
           <Composer
             busy={busy}
             kbOptions={kbOptions}
@@ -287,14 +297,8 @@ export function ChatPage() {
             onSend={(question) => void send(question)}
             onStop={() => abortRef.current?.abort()}
           />
-
-          {latestSources.length > 0 && (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              这一轮引用了 {latestCited.length} / {latestSources.length} 条资料
-            </Typography.Text>
-          )}
-        </Space>
-      </div>
+        </div>
+      </section>
     </div>
   )
 }
@@ -320,38 +324,44 @@ function Composer({ busy, kbOptions, scope, onScopeChange, onSend, onStop }: Com
   }
 
   return (
-    <Card size="small">
-      <Space orientation="vertical" style={{ width: '100%' }}>
+    <Card size="small" className="panel">
+      <Space orientation="vertical" style={{ width: '100%' }} size={10}>
         {kbOptions.length > 0 && (
-          <Space size={4} wrap>
+          <div className="composer-scope">
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              检索范围:
+              检索范围
             </Typography.Text>
-            <Button
-              size="small"
-              type={scope.length === 0 ? 'primary' : 'default'}
-              onClick={() => onScopeChange([])}
-            >
-              全部
-            </Button>
-            {kbOptions.map((option) => (
+            {/* 用**单选按钮组**的语义而不是一排会变色的普通按钮:
+                「全部」和具体库是互斥的,而选中态一眼看得出来。 */}
+            <Space size={4} wrap>
               <Button
-                key={option.id}
                 size="small"
-                type={scope.includes(option.id) ? 'primary' : 'default'}
-                onClick={() =>
-                  onScopeChange(
-                    scope.includes(option.id)
-                      ? scope.filter((id) => id !== option.id)
-                      : [...scope, option.id],
-                  )
-                }
+                type={scope.length === 0 ? 'primary' : 'default'}
+                ghost={scope.length === 0}
+                onClick={() => onScopeChange([])}
               >
-                {option.name}
+                全部
               </Button>
-            ))}
-          </Space>
+              {kbOptions.map((option) => (
+                <Button
+                  key={option.id}
+                  size="small"
+                  type={scope.includes(option.id) ? 'primary' : 'default'}
+                  onClick={() =>
+                    onScopeChange(
+                      scope.includes(option.id)
+                        ? scope.filter((id) => id !== option.id)
+                        : [...scope, option.id],
+                    )
+                  }
+                >
+                  {option.name}
+                </Button>
+              ))}
+            </Space>
+          </div>
         )}
+
         <Input.TextArea
           value={value}
           onChange={(event) => setValue(event.target.value)}
@@ -367,12 +377,18 @@ function Composer({ busy, kbOptions, scope, onScopeChange, onSend, onStop }: Com
             }
           }}
         />
-        <Space>
-          <Button type="primary" loading={busy} onClick={submit}>
-            发送
-          </Button>
-          {busy && <Button onClick={onStop}>停止</Button>}
-        </Space>
+
+        <div className="composer-actions">
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Enter 发送 · Shift+Enter 换行
+          </Typography.Text>
+          <Space>
+            {busy && <Button onClick={onStop}>停止</Button>}
+            <Button type="primary" loading={busy} onClick={submit}>
+              发送
+            </Button>
+          </Space>
+        </div>
       </Space>
     </Card>
   )

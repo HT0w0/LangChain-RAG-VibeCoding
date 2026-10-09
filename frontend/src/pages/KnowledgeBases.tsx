@@ -163,7 +163,7 @@ export function KnowledgeBasesPage() {
                   }
                 }}
               >
-                <a>删</a>
+                <a className="sidebar-row-action">删除</a>
               </Popconfirm>
             ),
           }))}
@@ -313,10 +313,7 @@ export function KnowledgeBasesPage() {
                   },
                 ]}
               />
-              <Typography.Paragraph
-                type="secondary"
-                style={{ fontSize: 12, marginTop: 12, marginBottom: 0 }}
-              >
+              <Typography.Paragraph className="hint">
                 处理在后台进行,页面会自动刷新状态。全部就绪后才会停止轮询。
               </Typography.Paragraph>
             </Card>

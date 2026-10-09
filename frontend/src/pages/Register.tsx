@@ -37,11 +37,16 @@ export function RegisterPage() {
   }
 
   return (
-    <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: 24 }}>
-      <Card style={{ width: 380 }}>
-        <Typography.Title level={4} style={{ textAlign: 'center' }}>
+    <div className="auth-page">
+      <Card className="auth-card">
+        <div className="auth-mark">知</div>
+        <Typography.Title level={4} className="auth-title">
           注册
         </Typography.Title>
+        <Typography.Text className="auth-subtitle">
+          注册后即可提问;知识库由管理员维护
+        </Typography.Text>
+
         {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
         <Form<FormValues> layout="vertical" onFinish={onFinish} disabled={busy}>
           <Form.Item

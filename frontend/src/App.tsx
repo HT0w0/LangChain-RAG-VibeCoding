@@ -16,7 +16,25 @@ export default function App() {
   return (
     // `zhCN` 是必须的:antd 默认是英文,表格的「暂无数据」「每页 20 条」
     // 这些文案会中英混杂。
-    <ConfigProvider locale={zhCN}>
+    //
+    // `theme.token` 只调了三个**全局**的量:圆角、字号、主色。
+    // 不逐个组件覆盖——那会把「改一个按钮的圆角」变成两处要找,而且
+    // 覆盖项之间会互相打架。`index.css` 里的自写样式用的也是同一套值。
+    <ConfigProvider
+      locale={zhCN}
+      theme={{
+        token: {
+          colorPrimary: '#1677ff',
+          borderRadius: 8,
+          fontSize: 14,
+        },
+        components: {
+          // 卡片默认内边距在「一屏放几次」的布局里太松,收一点。
+          Card: { bodyPadding: 16, headerHeight: 44 },
+          Table: { headerBg: '#fafbfc' },
+        },
+      }}
+    >
       {/* antd 的 `message`/`notification` 需要这层 Provider 才能拿到
           ConfigProvider 的上下文,否则它们用的是默认主题。 */}
       <AntApp>

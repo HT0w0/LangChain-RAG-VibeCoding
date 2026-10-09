@@ -17,6 +17,15 @@ export interface SourceCardsProps {
   sources: SourceRef[]
   /** 被点开的引用编号(用于滚动定位与高亮)。 */
   highlighted?: number | null
+  /**
+   * 锚点前缀,**必须按消息区分。**
+   *
+   * 一屏上挂着好几轮回答,而每轮的编号都从 1 起。用 `source-1` 这种
+   * 不带消息标识的 id 会**撞 id**,于是点第二条回答里的 `[1]` 会滚到
+   * 第一条回答的来源卡片上——页面有反应、位置不对,而这类错不会有
+   * 任何报错。
+   */
+  idPrefix: string
 }
 
 function scoreLabel(source: SourceRef): string | null {
@@ -27,7 +36,7 @@ function scoreLabel(source: SourceRef): string | null {
   return null
 }
 
-export function SourceCards({ sources, highlighted }: SourceCardsProps) {
+export function SourceCards({ sources, highlighted, idPrefix }: SourceCardsProps) {
   if (sources.length === 0) {
     return <Empty description="这一轮没有引用任何资料" image={Empty.PRESENTED_IMAGE_SIMPLE} />
   }
@@ -41,7 +50,8 @@ export function SourceCards({ sources, highlighted }: SourceCardsProps) {
             key={source.index}
             // 滚动锚点。**用 `index` 而不是 `chunk_id`**:正文里的 `[1]`
             // 指的是一次回答内的序号,同一个分块在下一轮可能是别的编号。
-            id={`source-${source.index}`}
+            // 前面还要带上消息前缀,否则多轮之间会撞 id(见 `idPrefix`)。
+            id={`${idPrefix}-source-${source.index}`}
             size="small"
             style={active ? { borderColor: '#1677ff', background: '#f0f7ff' } : undefined}
             title={

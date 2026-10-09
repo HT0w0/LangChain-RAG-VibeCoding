@@ -104,7 +104,7 @@ export function MetricsPage() {
                 <Typography.Text type="secondary">窗口内没有请求</Typography.Text>
               )}
             </Space>
-            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+            <Typography.Paragraph className="hint">
               <Typography.Text strong>失败也计入分母。</Typography.Text>
               只统计成功请求的延迟分布,会把最慢的那部分(慢到出错的)整个从
               分母里删掉——p95 越优化越好看,而用户感受不到。
@@ -122,7 +122,7 @@ export function MetricsPage() {
               <Descriptions.Item label="max">{ms(summary?.total_ms.max ?? 0)}</Descriptions.Item>
               <Descriptions.Item label="avg">{ms(summary?.total_ms.avg ?? 0)}</Descriptions.Item>
             </Descriptions>
-            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>
+            <Typography.Paragraph className="hint">
               分位数用<Typography.Text strong>最近秩</Typography.Text>而不是线性插值:
               n=10 时两种定义给出 5 和 5.5,都「对」。选最近秩是因为它总是返回
               真实存在的观测值。
@@ -172,7 +172,7 @@ export function MetricsPage() {
             {summary?.completion_tokens ?? 0}
           </Descriptions.Item>
         </Descriptions>
-        <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>
+        <Typography.Paragraph className="hint">
           prompt 缓存命中率的分母
           <Typography.Text strong>只算报过读数的请求</Typography.Text>,而且
           <Typography.Text strong>没有读数时显示「—」而不是「0%」</Typography.Text>:
@@ -196,7 +196,7 @@ export function MetricsPage() {
             },
           ]}
         />
-        <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+        <Typography.Paragraph className="hint">
           每个阶段的分母是「<Typography.Text strong>记过这个阶段</Typography.Text>
           」的请求数,不是总请求数——否则关掉重排之后它的平均值会被那些
           没跑过它的请求拉低,看起来像是「重排变快了」。

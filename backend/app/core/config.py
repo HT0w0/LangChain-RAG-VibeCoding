@@ -12,11 +12,20 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import computed_field, field_validator
+from pydantic import ValidationInfo, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/app/core/config.py -> backend/app/core -> backend/app -> backend -> 项目根
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+#: 项目自带的演示管理员口令。**它是公开的**(README 里就写着),
+#: 所以生产环境启动时会拿它去比对**库里的哈希**,比中了直接拒绝启动。
+#:
+#: 定义成常量而不是散在两处:字段默认值和那处比对必须是同一个值,
+#: 抄成两份的话,改了其中一处就会出现「字段说 123456、判据比 xyz」这种
+#: 谁都不报错的错位。
+DEFAULT_ADMIN_PASSWORD = "123456"
 
 
 class Settings(BaseSettings):
@@ -48,7 +57,10 @@ class Settings(BaseSettings):
     ARGON2_PARALLELISM: int = 4
 
     ADMIN_USERNAME: str = "admin"
-    ADMIN_PASSWORD: str = "123456"
+    # **这个默认值是公开的**(README 拿它当演示登录),所以生产环境启动时
+    # 会拿 `DEFAULT_ADMIN_PASSWORD` 去比对库里的哈希,比中了就拒绝启动 ——
+    # 见 `services/auth.py` 的 `assert_admin_password_is_not_default`。
+    ADMIN_PASSWORD: str = DEFAULT_ADMIN_PASSWORD
 
     # ---------- 阿里云百炼 ----------
     DASHSCOPE_API_KEY: str = ""
@@ -163,18 +175,47 @@ class Settings(BaseSettings):
 
     # ---------- 限流 ----------
     RATE_LIMIT_QPM: int = 30
+    #: 登录接口每分钟允许多少次(按 IP)。**比问答的额度小得多**:
+    #: 正常人一分钟不会登录 10 次,而暴力破解正是一次一次地试。
+    #: 0 表示关闭(压测会关掉它 —— 它的登录风暴本来就是几十次连发)。
+    LOGIN_RATE_LIMIT_QPM: int = 10
 
     @field_validator("JWT_SECRET")
     @classmethod
-    def _warn_default_secret(cls, v: str) -> str:
-        if v.startswith("dev-only-insecure"):
-            import warnings
+    def _guard_default_secret(cls, v: str, info: ValidationInfo) -> str:
+        """默认密钥:**开发环境告警,生产环境拦住启动。**
 
-            warnings.warn(
-                "JWT_SECRET 仍是默认值，生产环境必须替换。"
-                '生成：python -c "import secrets; print(secrets.token_urlsafe(48))"',
-                stacklevel=2,
+        密钥就是那个「只有服务器知道的印章」—— 它证明一张登录凭证确实是本服务
+        签发的。而这个默认值是**写在公开仓库里的**,全世界都看得到。
+
+        所以「生产环境 + 默认密钥」等于:任何读过这个仓库的人都能**自己签一张
+        凭证**,声称自己是管理员,而服务器会盖章放行。
+
+        为什么要**拦住启动**而不只是告警:这条配置错误**没有任何别的症状** ——
+        服务跑得好好的,直到有人拿管理员权限进来。而启动日志里的警告是最容易
+        被忽略的东西(云平台上刷一下就过去了)。**只有「起不来」会逼人当场处理。**
+
+        本地开发不受影响:只在 `APP_ENV=prod`(明确声明「这是部署」)时才拦。
+        """
+        if not v.startswith("dev-only-insecure"):
+            return v
+
+        # `info.data` 里只有**已经校验过**的字段,所以 APP_ENV 必须声明在
+        # JWT_SECRET 之前(见上面「应用」那一段)。顺序换了这里会读到 None。
+        if info.data.get("APP_ENV") == "prod":
+            raise ValueError(
+                "生产环境(APP_ENV=prod)不允许使用默认的 JWT_SECRET —— "
+                "那个默认值写在公开仓库里,任何人都能拿它伪造登录凭证(含管理员)。"
+                '生成一个:python -c "import secrets; print(secrets.token_urlsafe(48))"'
             )
+
+        import warnings
+
+        warnings.warn(
+            "JWT_SECRET 仍是默认值，生产环境必须替换。"
+            '生成：python -c "import secrets; print(secrets.token_urlsafe(48))"',
+            stacklevel=2,
+        )
         return v
 
     # ---------- 派生路径 ----------

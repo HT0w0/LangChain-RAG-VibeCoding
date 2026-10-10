@@ -57,6 +57,18 @@ export function describeError(status: number, payload: unknown): string {
     return parts.length > 0 ? parts.join(';') : fieldFallback(status)
   }
 
+  // **后端业务异常的形状是 `{code, message, details?}`(见后端 `main.py` 的
+  // `AppError` 处理器),它没有 `detail`。**
+  //
+  // 只认 `detail` 的话,后端写的每一句业务文案都会被丢掉,用户永远只看到
+  // 按状态码给的兜底 —— 而这个缺口一直没被发现,是因为**兜底那句看起来
+  // 也说得通**。它有信息量、不像报错、也没人会觉得少了什么。
+  //
+  // 直到限流:兜底那句「操作太频繁了,请稍后再试」**说不出等多久**,
+  // 而业务异常里正带着这个数。这才让它显形。
+  const message = (payload as Record<string, unknown>).message
+  if (typeof message === 'string' && message !== '') return message
+
   return fallbackFor(status)
 }
 

@@ -9,7 +9,7 @@ import threading
 import anyio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings
+from app.core.config import DEFAULT_ADMIN_PASSWORD, Settings
 from app.core.exceptions import AuthError, ConflictError, ForbiddenError
 from app.core.logging import log_extra
 from app.core.security import (
@@ -78,6 +78,48 @@ def _hash_limiter_for(settings: Settings) -> anyio.CapacityLimiter:
                     max(2, _HASH_MEMORY_BUDGET_MB // per_hash_mb)
                 )
     return _hash_limiter
+
+
+def is_default_admin_password(settings: Settings, admin: User) -> bool:
+    """库里的管理员口令是不是项目那个默认值。
+
+    单独抽出来,是因为它有**两个用处**:生产环境启动时据此拒绝启动;
+    非生产环境则据此决定「要不要拒绝来自其他机器的请求」(见 `main.py` 的
+    `block_remote_when_default_admin`)。两处各算一遍就会漂开。
+    """
+    return verify_password(DEFAULT_ADMIN_PASSWORD, admin.password_hash, settings)
+
+
+def assert_admin_password_is_not_default(settings: Settings, admin: User) -> None:
+    """生产环境里管理员口令仍是项目默认值 → **拒绝启动**。
+
+    和 `JWT_SECRET` 那道拦截是同一类:默认值写在公开仓库里,谁都能读到。
+    在别人能访问到这个服务的地方,那等于把管理员账号的钥匙挂在门口。
+
+    **为什么比的是库里的哈希,而不是 `settings.ADMIN_PASSWORD`:**
+
+    `ensure_admin` 只在账号不存在时创建,已存在则一概不动(那是刻意的幂等 ——
+    否则管理员自己改过的密码会被重启冲掉)。所以「先部署 → 发现不对 →
+    改 .env → 重启」这条路上,**配置是强的、库里的口令还是默认的**。
+    只比配置会放行,而运维会以为自己已经修好了。
+
+    比库里的哈希同时覆盖了两种情形,而且顺带覆盖了「管理员从界面上
+    改过密码」—— 那种情况下哈希早就不是默认的了,自然放行。
+
+    只在 `APP_ENV=prod` 时检查:本地开发用默认口令是**刻意的**,
+    README 就拿它当演示登录,拦起来只会让 clone 下来的人一脸茫然。
+    """
+    if settings.APP_ENV != "prod":
+        return
+    if not is_default_admin_password(settings, admin):
+        return
+    raise RuntimeError(
+        "生产环境(APP_ENV=prod)的管理员口令仍是项目默认值 —— "
+        "那个口令公开写在 README 里,任何人拿它就能登录管理员账号。"
+        "处理办法:改 .env 的 ADMIN_PASSWORD **之后删掉 data/app.db 重建**"
+        "(已存在的账号不会被 ensure_admin 覆盖,只改配置是没用的),"
+        "或者登录之后用「修改密码」把它换掉。"
+    )
 
 
 class AuthService:

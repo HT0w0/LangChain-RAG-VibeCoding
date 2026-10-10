@@ -18,6 +18,7 @@ import time
 
 import pytest
 from app.core.config import Settings
+from app.core.exceptions import ProviderError, QuotaExhaustedError
 from app.db.repositories.document import ChunkRecord
 from app.indexing.vectorstore import VectorHit
 from app.providers.base import RerankHit
@@ -417,6 +418,12 @@ class TestRerank:
         """**重排是增强,不是必需。** 云端重排挂了就退回复合排序,
         绝不能把整个问答接口带崩——用户宁可拿到一份稍差的答案,
         也不想看到 500。
+
+        ⚠️ **这条用的是「设计上该抛的那个信号」(`RerankUnavailableError`)**,
+        而**真实的 `DashScopeReranker` 从不抛它**。所以它单独存在的时候,
+        是在和代码互相印证而不是和现实印证 —— 那个 bug 就是这么藏了下来的
+        (见下一条 `test_上游真的挂了也退回复合排序`)。
+        留着它是因为「子类也能被接住」这件事本身值得钉住。
         """
         records = [record(1, "甲"), record(2, "乙")]
         reranker = FakeReranker(error=RerankUnavailableError("重排服务不可用"))
@@ -428,6 +435,57 @@ class TestRerank:
         assert [c.chunk_id for c in result.chunks] == [1, 2]
         assert result.reranked is False
         assert result.degraded is True, "降级必须能被上层看见并记录,而不是悄悄发生"
+
+    async def test_上游真的挂了也退回复合排序(self, settings):
+        """**云端重排真的失败时,同样必须退回复合排序。**
+
+        为什么单独为此写一条:上面那条用例是**照着代码写的** ——
+        `FakeReranker(error=RerankUnavailableError(...))` 抛的正是代码
+        当时 `except` 的那个类型。而真实的 `DashScopeReranker` **从不抛它**
+        (全仓搜过:`RerankUnavailableError` 只在它自己的定义处和上面那条
+        测试里出现,没有任何生产代码会抛)。它抛的是:
+
+          * `ProviderError` —— 连接失败 / 重试耗尽 / 上游 4xx/5xx
+          * `QuotaExhaustedError` —— 它是 `ProviderError` 的子类
+
+        于是那个 `except RerankUnavailableError` 成了一句**永远不会执行的
+        代码**:云端重排一抖,异常直接穿过去把整个问答打成 502 ——
+        正是上面那句注释说「绝不能发生」的事。
+
+        **教训**:假的替身抛「代码期待的类型」,测试和代码就互相印证了,
+        两边都跟现实对不上。所以这条用**真实 provider 会抛的类型**。
+        """
+        records = [record(1, "甲"), record(2, "乙")]
+        reranker = FakeReranker(
+            error=ProviderError(
+                "连接百炼 rerank 端点失败", provider="dashscope-rerank", retryable=True
+            )
+        )
+        service, _, _ = build(
+            settings, records=records, hits=[vector_hit(1, 0.9), vector_hit(2, 0.5)], reranker=reranker
+        )
+        result = await service.retrieve("查询", kb_ids=[1])
+
+        assert [c.chunk_id for c in result.chunks] == [1, 2]
+        assert result.reranked is False
+        assert result.degraded is True
+
+    async def test_额度耗尽也退回复合排序(self, settings):
+        """`QuotaExhaustedError` 是 `ProviderError` 的子类,一并降级。
+
+        它会走到这里的前提是**向量缓存命中**(否则 embedding 那一步早就用同一个
+        错误把请求打回去了)。这种情况下退回复合排序是好的:用户拿到一份
+        稍差的答案,而 `degraded=True` 让运维看得见额度没了。
+        """
+        records = [record(1, "甲"), record(2, "乙")]
+        reranker = FakeReranker(error=QuotaExhaustedError("额度耗尽"))
+        service, _, _ = build(
+            settings, records=records, hits=[vector_hit(1, 0.9), vector_hit(2, 0.5)], reranker=reranker
+        )
+        result = await service.retrieve("查询", kb_ids=[1])
+
+        assert result.reranked is False
+        assert result.degraded is True
 
     async def test_rerank_disabled_by_settings(self, settings):
         s = settings.model_copy(update={"RERANK_ENABLED": False})

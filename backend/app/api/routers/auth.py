@@ -8,7 +8,12 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.core.deps import get_current_user, get_db, get_settings_dep
+from app.core.deps import (
+    enforce_login_rate_limit,
+    get_current_user,
+    get_db,
+    get_settings_dep,
+)
 from app.db.models import User
 from app.schemas.auth import (
     ChangePasswordRequest,
@@ -40,7 +45,16 @@ async def register(payload: RegisterRequest, session: DbDep, settings: SettingsD
     return await AuthService(session, settings).register(payload.username, payload.password)
 
 
-@router.post("/login", response_model=TokenResponse, summary="登录")
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="登录",
+    # **登录是唯一一个可以反复尝试凭据的入口**(注册、健康检查也不需要先登录,
+    # 但它们没有「猜密码」这件事可猜),所以它是最该限流的一个。
+    # 按 IP 计,不按用户名 —— 那会让攻击者用「故意输错」把别人的账号锁死。
+    # 理由写在依赖自己的文档里。
+    dependencies=[Depends(enforce_login_rate_limit)],
+)
 async def login(payload: LoginRequest, session: DbDep, settings: SettingsDep) -> TokenResponse:
     return await AuthService(session, settings).login(payload.username, payload.password)
 

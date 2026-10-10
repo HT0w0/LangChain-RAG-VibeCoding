@@ -573,6 +573,17 @@ class Target:
                 "ADMIN_USERNAME": "admin",
                 "ADMIN_PASSWORD": "loadtest-admin-pw",
                 "PYTHONUTF8": "1",
+                # **关掉限流。** 压测要量的是系统的**原始容量**,而限流是一层
+                # 策略:开着它测出来的只是「30 次/分钟 × 用户数」—— 那是个
+                # 算得出来的数,不是测出来的。而且 S4 的登录风暴会用同几个用户
+                # 连开几十条流,必然撞上限流,把那一臂的观测量整个毁掉。
+                # (`0` = 关闭,见 main.py 的 lifespan。)
+                "RATE_LIMIT_QPM": "0",
+                # **登录限流也必须关。** S4 那一臂就是「同一个 IP 连发 30 次登录」,
+                # 而登录限流默认 10 次/分钟 —— 不关的话,那一臂从第 11 次起全是 429,
+                # 观测量(事件循环可用性)**整个作废**,而且症状是「登录臂看起来
+                # 被打爆了」,指向一个根本不存在的问题。
+                "LOGIN_RATE_LIMIT_QPM": "0",
             }
         )
         if self.profile == "mock":
@@ -1891,7 +1902,11 @@ async def _run(args: argparse.Namespace) -> int:
         # 打在开发库上就是永久污染。
         print(f"\n  ⚠️  打的是已经在跑的服务:{base_url}")
         print("     它用的**不是**临时库。这次压测会往它的数据库里灌数据。")
-        print("     要干净的测量请去掉 --base-url,让脚本自己起一个临时环境。\n")
+        print("     而且它的**限流是开着的** —— 一个用户压到 RATE_LIMIT_QPM 次/分钟")
+        print("     之后会开始返回 429。**那不是系统的容量上限,是限流**,")
+        print("     别把它读成「撑不住」。")
+        print("     要干净的测量请去掉 --base-url,让脚本自己起一个临时环境")
+        print("     (它会替你把限流关掉)。\n")
         notes.append(f"打的是外部服务 {base_url},不是脚本自起的临时环境。")
     else:
         tmp = Path(tempfile.mkdtemp(prefix="loadtest-"))

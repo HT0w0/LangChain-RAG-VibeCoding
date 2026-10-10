@@ -36,13 +36,13 @@ from typing import Any, Protocol
 import anyio
 
 from app.core.config import Settings
+from app.core.exceptions import ProviderError
 from app.core.logging import log_extra
 from app.db.repositories.document import ChunkRecord
 from app.indexing.bm25 import BM25Document, BM25Hit, JiebaBM25
 from app.indexing.fusion import reciprocal_rank_fusion
 from app.indexing.vectorstore import build_where
 from app.providers.base import Embedder, Reranker
-from app.providers.reranker import RerankUnavailableError
 from app.services.context import RetrievedChunk
 
 logger = logging.getLogger(__name__)
@@ -363,7 +363,22 @@ class RetrievalService:
                 [c.content for c in candidates],
                 top_n=self._settings.RERANK_TOP_N,
             )
-        except RerankUnavailableError as exc:
+        except ProviderError as exc:
+            # ⚠️ **这里必须捕获 `ProviderError`(父类),不能只捕获
+            # `RerankUnavailableError`(子类)。**
+            #
+            # 踩过一次,而且藏了很久:`except RerankUnavailableError` 读起来
+            # 完全合理,但**真实的 `DashScopeReranker` 从不抛它** —— 它抛的是
+            # `ProviderError`(连接失败 / 重试耗尽 / 上游 4xx/5xx)和它的子类
+            # `QuotaExhaustedError`。于是这个 `except` 是一句**永远不会执行的
+            # 代码**,云端重排一失败就直接穿过去,把整个问答打成 502 ——
+            # 正是上面那句注释说「绝不能发生」的事。
+            #
+            # **为什么没被测出来**:唯一覆盖这条路径的测试,用的假替身抛的正是
+            # 代码期待的那个类型 —— 测试和代码互相印证,两边都跟现实对不上。
+            # 现在两条都有:`test_上游真的挂了也退回复合排序` 用真实类型钉住这条路径。
+            #
+            # 捕获父类不会漏掉子类,所以 `RerankUnavailableError` 也被这里接住。
             logger.warning("重排不可用,退回复合排序", extra=log_extra(error=str(exc)))
             return candidates, False, True
 

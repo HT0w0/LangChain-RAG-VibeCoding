@@ -16,10 +16,22 @@ class AppError(Exception):
     code: str = "internal_error"
     http_status: int = 500
 
-    def __init__(self, message: str = "", *, code: str | None = None, **details: object) -> None:
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        code: str | None = None,
+        headers: dict[str, str] | None = None,
+        **details: object,
+    ) -> None:
         self.message = message or self.__class__.__doc__ or self.code
         if code:
             self.code = code
+        #: 额外的响应头。**给的是「标准说法」的机会** —— 比如限流要回
+        #: `Retry-After`,那是这件事的通用表达,代理与 SDK 都认,而
+        #: 我们自己的 `details.retry_after_seconds` 只有读过文档的人才知道。
+        #: 关键字参数,免得和 `**details` 撞名。
+        self.headers = headers or {}
         self.details = details
         super().__init__(self.message)
 

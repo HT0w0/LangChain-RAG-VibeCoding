@@ -42,6 +42,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.core.config import Settings
 from app.core.deps import (
+    enforce_chat_rate_limit,
     get_current_user,
     get_database_dep,
     get_db,
@@ -411,6 +412,9 @@ async def _persist_after(
     "/stream",
     summary="知识库问答(SSE 流式,先推引用再推答案)",
     response_class=EventSourceResponse,
+    # 用户级限流**只挂在这一个端点上**。理由写在依赖自己的文档里 ——
+    # 一句话:这里是唯一花钱的那条路,而全局挂会把知识库页的轮询打成 429。
+    dependencies=[Depends(enforce_chat_rate_limit)],
 )
 async def chat_stream(
     payload: ChatRequest,

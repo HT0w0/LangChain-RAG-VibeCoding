@@ -25,6 +25,17 @@ dependencies = [
     "sse-starlette>=3.5.0",
     "python-multipart>=0.0.20",         # 文件上传
     "httpx>=0.28.0",                    # 调 DashScope 原生 rerank 端点
+    # `anyio.to_thread` —— 把阻塞调用挪出事件循环(Chroma 查询、BM25 打分、
+    # 密码哈希、本地 embedding/rerank 编码)。**好几个模块直接 import 它**,
+    # 有的写在模块顶部、有的写在函数体里。
+    #
+    # 此前只是靠 starlette 的传递依赖到场 —— 那样写能跑,但**传递依赖不是
+    # 承诺**:上游哪天不再依赖 anyio,这个包会从环境里消失,而报错是
+    # `ModuleNotFoundError`,指不到是依赖表漏了一条。
+    #
+    # (这里**刻意不写「几处」**:第一版写了「三处」,而实际是五处 ——
+    #  凡是会随代码变化的数,写在注释里就会过期。)
+    "anyio>=4.0",
 
     # --- 检索 ---
     "jieba>=0.42.1",                    # 中文分词，替代 text.split()

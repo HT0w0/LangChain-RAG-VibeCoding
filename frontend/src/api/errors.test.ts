@@ -68,6 +68,28 @@ describe('describeError', () => {
     expect(describeError(500, {})).toBe('服务端出错了,请稍后重试')
   })
 
+  it('**认后端业务异常的形状**(`{code, message, details?}`)', () => {
+    // 后端 `main.py` 的 AppError 处理器返回的是 `{code, message, details?}` ——
+    // 它**没有 `detail`**。只认 `detail` 的话,后端精心写的每一句业务文案
+    // 都会被丢掉,用户看到的是按状态码给的兜底。
+    //
+    // 这不是措辞问题:兜底那句「操作太频繁了,请稍后再试」说不出
+    // **等多久**,而业务异常里带着这句话(见限流)。
+    const body = {
+      code: 'rate_limited',
+      message: '问得太快了,请等 23 秒再试。(限制:30 次/分钟)',
+      details: { retry_after_seconds: 23.4 },
+    }
+
+    expect(describeError(429, body)).toBe('问得太快了,请等 23 秒再试。(限制:30 次/分钟)')
+  })
+
+  it('message 是空串时退到兜底,不给一个空提示框', () => {
+    expect(describeError(429, { code: 'rate_limited', message: '' })).toBe(
+      '操作太频繁了,请稍后再试',
+    )
+  })
+
   it('响应体不是 JSON(比如网关返回的 HTML 错误页)时不崩', () => {
     // 反向代理挂掉时返回的是一页 HTML,`response.json()` 会抛。
     // 让它冒出去的话,用户看到的是「Unexpected token < in JSON」。

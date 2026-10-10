@@ -1,0 +1,53 @@
+#!/bin/sh
+# 闸门 A 的入口 —— git 每次 commit 之前都会跑这里。
+#
+# 它自己不判断任何事，只是把活交给 .claude/gate/gate.mjs。
+# 判断逻辑写在那边，理由：这里只能写 sh，Windows 上还得靠 Git Bash，
+# 能做的事太少；真正的判据跟闸门 B 共用同一份 JS，才不会两边跑偏。
+#
+# ⚠️ 这个文件**必须是 LF 行尾**。CRLF 会让第一行变成 `#!/bin/sh\r`，
+# 解释器路径带个回车就找不到了 —— **症状是「提交时什么都不发生」**，
+# 与 CLAUDE.md §5.10 踩过的 .bat 是同一类坑（都是静默失效，不报错）。
+#
+# 本项目 `.gitattributes` 写的是 `* text=auto eol=lf`，所以入库与检出都是 LF，
+# 这一条已经由仓库配置兜住；写在这里是因为**它坏了不会报错**。
+
+# ── 只拦 Claude，放用户自己过 ─────────────────────────────────────────
+# 用户 2026-10-06 拍板：他在自己的终端里敲 git commit 要畅通无阻，
+# 通行证只对 Claude 提要求。（原先是不分谁一律拦，见说明.md 的实测记录。）
+#
+# 分辨依据：Claude Code 会在它启动的每个子进程环境里留下 CLAUDE* 标记，
+# 而用户自己开的终端里没有。实测过 —— 标记能传进子进程，去掉之后就空了。
+#
+# 为什么一次认三个名字，而不是只看 CLAUDECODE：这些都是 Claude Code 的
+# 内部约定，将来改了名，只看一个就会**静默地不再拦 Claude**（钩子照跑、
+# 一声不吭，正是这个项目最讨厌的那类失败）。多认几个，改掉一个也不至于
+# 全线穿帮。代价说清楚：真要是三个全改了，这层就失效了 —— 那时闸门 B
+# 还在拦「Claude 直接跑 git commit」那条主路，丢的只是「把提交藏进脚本」
+# 这条旁路（那种写法闸门 B 本来也看不见）。
+#
+# ⚠️ 判断方向别改反：**没有标记 → 放行**。反过来的话，一旦改名，
+# 用户自己的终端会被重新拦上，而且同样是一声不吭。
+if [ -z "${CLAUDECODE}${CLAUDE_CODE_ENTRYPOINT}${CLAUDE_CODE_SESSION_ID}" ]; then
+  exit 0
+fi
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$ROOT" ]; then
+  echo "" >&2
+  echo "✗ 提交被拦下：找不到仓库根目录，闸门没法工作。" >&2
+  echo "  紧急时跳过这次拦截：git commit --no-verify" >&2
+  echo "" >&2
+  exit 1
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "" >&2
+  echo "✗ 提交被拦下：这个环境里找不到 node，闸门跑不起来。" >&2
+  echo "  （前端要 Node 才能构建，正常不该出现这种情况。）" >&2
+  echo "  紧急时跳过这次拦截：git commit --no-verify" >&2
+  echo "" >&2
+  exit 1
+fi
+
+node "$ROOT/.claude/gate/gate.mjs"

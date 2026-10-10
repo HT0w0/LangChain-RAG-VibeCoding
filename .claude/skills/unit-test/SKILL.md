@@ -5,7 +5,7 @@ description: 当用户说「写单元测试」「补测试」「加个测试」�
 
 # unit-test：写单元测试 · 跑 · 出报告
 
-这个项目**已经有 579 条后端 + 49 条前端测试，且绝大多数是测试先行写出来的**。
+这个项目**已经有 615 条后端 + 62 条前端测试，且绝大多数是测试先行写出来的**。
 所以第一件事不是「写测试」，是**判断哪里真的还没有**——
 
 > 「为这个项目的代码生成单元测试」的真实含义是**找出没有覆盖的地方**，
@@ -81,9 +81,10 @@ it('中文描述', () => { ... })
 ## 第三步：跑
 
 ```bash
-cd backend && python -m pytest -q          # 后端全量
-python -m pytest tests/test_parsing.py -q  # 只跑你新写的
-python -m ruff check app tests             # 质量门禁,必须过
+# 在仓库根目录跑。`.venv` 里那个 python 才是装了 pytest / ruff 的
+.venv/Scripts/python.exe -m pytest -q                    # 后端全量
+.venv/Scripts/python.exe -m pytest backend/tests/test_parsing.py -q   # 只跑你新写的
+.venv/Scripts/python.exe -m ruff check backend/app backend/tests backend/scripts
 
 cd frontend && npm run test                # 前端全量
 npx tsc -b                                 # 测试文件也在类型检查范围内

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import functools
 import logging
+import threading
 
+import anyio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -26,6 +29,56 @@ logger = logging.getLogger(__name__)
 # 用户枚举器——攻击者能先批量确认哪些账号存在,再针对性地撞库。
 _INVALID_CREDENTIALS = "用户名或密码错误"
 
+# ---------------------------------------------------------------------------
+# 密码哈希:挪出事件循环 + 并发闸门
+# ---------------------------------------------------------------------------
+#
+# **两件事必须一起做,只做第一件会把问题换个形式。**
+#
+# 一、挪出事件循环。argon2 是**同步**的、每次约 50–100ms。直接在 async 函数里
+#     调它会独占事件循环 —— 期间**所有其他请求一起卡住**,包括正在流式输出的 SSE。
+#
+#     依据是 `docs/LOAD-TEST.md` 第四节那个「登录风暴」实验:挂着几条 SSE 流,
+#     同时打 30 个并发登录,量**事件循环可用性**(别的请求还能不能跑),
+#     并用「CPU 饱和」「并发廉价请求」两条对照臂把原因钉死。
+#
+#     **这里刻意不复述具体数字。** 那些数每一轮压测都会变(报告是
+#     `loadtest.py --write` 生成的),写死在注释里必然过期 —— 我在这里
+#     栽过两次:第一次引的数在仓库里核不到,改成报告里的数之后,
+#     报告又重生成了一遍,数字又对不上了。**要数字就看报告第四节。**
+#
+#     判据那一行会告诉你结论:修后它报「不成立」,那正是这个改动的目的。
+#     反过来说,如果哪天它又报「成立」,说明这个改动被回退了。
+#
+# 二、加并发闸门。argon2 是**内存硬化**算法:`ARGON2_MEMORY_COST=65536` 是
+#     **每次哈希 64MB**。而 anyio 的默认线程池上限约 40 —— 40 个并发登录就能
+#     同时占住约 2.5GB,而这台机器只有 15.4GB。**不设闸门的话,这个修法只是
+#     把「事件循环阻塞」换成了「内存压力」**,而后者更难查。
+#
+# 预算 512MB:在 64MB/次的默认参数下允许 8 个并发哈希(8 × 64MB = 512MB),
+# 与线程池其余工作(Chroma/BM25)也能共存。参数变了闸门自动跟着变。
+_HASH_MEMORY_BUDGET_MB = 512
+
+_hash_limiter: anyio.CapacityLimiter | None = None
+_hash_limiter_lock = threading.Lock()
+
+
+def _hash_limiter_for(settings: Settings) -> anyio.CapacityLimiter:
+    """进程级、只按第一次见到的参数建一次。
+
+    必须在**运行时**建:`anyio.CapacityLimiter` 要绑定到当时的事件循环,
+    在模块导入时建会绑到一个还不存在的循环上。
+    """
+    global _hash_limiter
+    if _hash_limiter is None:
+        with _hash_limiter_lock:
+            if _hash_limiter is None:
+                per_hash_mb = max(1, settings.ARGON2_MEMORY_COST // 1024)
+                _hash_limiter = anyio.CapacityLimiter(
+                    max(2, _HASH_MEMORY_BUDGET_MB // per_hash_mb)
+                )
+    return _hash_limiter
+
 
 class AuthService:
     def __init__(self, session: AsyncSession, settings: Settings) -> None:
@@ -36,15 +89,29 @@ class AuthService:
 
     # ---------- 内部 ----------
 
+    async def _hash(self, password: str) -> str:
+        """哈希一个密码,**在线程池里做**。见文件头那一节。"""
+        return await anyio.to_thread.run_sync(
+            functools.partial(hash_password, password, self._settings),
+            limiter=_hash_limiter_for(self._settings),
+        )
+
+    async def _verify(self, password: str, stored: str) -> bool:
+        """校验密码,**在线程池里做**。见文件头那一节。"""
+        return await anyio.to_thread.run_sync(
+            functools.partial(verify_password, password, stored, self._settings),
+            limiter=_hash_limiter_for(self._settings),
+        )
+
     async def _get_dummy_hash(self) -> str:
         """用于「用户不存在」分支的假哈希。
 
         没有它的话,账号不存在时接口立即返回,而账号存在时要等 argon2 算完
-        (约 100ms)。这个**响应时间差**足以枚举用户,而且完全不需要读报错文案。
+        (约 50ms)。这个**响应时间差**足以枚举用户,而且完全不需要读报错文案。
         拿真哈希去校验一个必然错误的密码,把两条路径的耗时拉平。
         """
         if self._dummy_hash is None:
-            self._dummy_hash = hash_password("dummy-password-for-timing-equalization", self._settings)
+            self._dummy_hash = await self._hash("dummy-password-for-timing-equalization")
         return self._dummy_hash
 
     def _issue(self, user: User) -> TokenResponse:
@@ -69,7 +136,7 @@ class AuthService:
 
         user = await self._users.create(
             username=username,
-            password_hash=hash_password(password, self._settings),
+            password_hash=await self._hash(password),
             role=UserRole.USER,
         )
         await self._s.commit()
@@ -80,10 +147,10 @@ class AuthService:
         user = await self._users.get_by_username(username)
 
         if user is None:
-            verify_password(password, await self._get_dummy_hash(), self._settings)
+            await self._verify(password, await self._get_dummy_hash())
             raise AuthError(_INVALID_CREDENTIALS)
 
-        if not verify_password(password, user.password_hash, self._settings):
+        if not await self._verify(password, user.password_hash):
             logger.warning(
                 "登录失败", extra=log_extra(username=username, reason="bad_password")
             )
@@ -96,7 +163,7 @@ class AuthService:
 
         # 参数升级:登录成功时顺手把旧参数哈希换成当前参数,用户无感
         if needs_rehash(user.password_hash, self._settings):
-            await self._users.update_password(user, hash_password(password, self._settings))
+            await self._users.update_password(user, await self._hash(password))
 
         await self._users.touch_last_login(user)
         await self._s.commit()
@@ -114,11 +181,11 @@ class AuthService:
         要真正做到「改密即踢下线」需要一个 token 版本号或吊销表,见 README
         的已知限制。这里先如实记录,不假装它不存在。
         """
-        if not verify_password(old_password, user.password_hash, self._settings):
+        if not await self._verify(old_password, user.password_hash):
             logger.warning("改密失败", extra=log_extra(user_id=user.id, reason="bad_old_password"))
             raise ForbiddenError("当前密码不正确", code="wrong_old_password")
 
-        await self._users.update_password(user, hash_password(new_password, self._settings))
+        await self._users.update_password(user, await self._hash(new_password))
         await self._s.commit()
         logger.info("用户改密", extra=log_extra(user_id=user.id))
 
@@ -134,7 +201,7 @@ class AuthService:
 
         admin = await self._users.create(
             username=username,
-            password_hash=hash_password(password, self._settings),
+            password_hash=await self._hash(password),
             role=UserRole.ADMIN,
         )
         await self._s.commit()

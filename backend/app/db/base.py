@@ -39,9 +39,11 @@ class Base(DeclarativeBase):
 def build_async_url(settings: Settings) -> URL | str:
     """构造异步驱动可用的 URL。
 
-    用 `URL.create()` 而非字符串拼接:项目路径里**有空格**
-    (`D:\\Claude Code\\LangChainRAG项目`),直接拼进 URL 字符串会被
-    SQLAlchemy 解析器在空格处截断。`URL.create` 会正确转义。
+    用 `URL.create()` 而非字符串拼接:仓库所在路径**可能带空格**,直接拼进
+    URL 字符串会被 SQLAlchemy 解析器在空格处截断。`URL.create` 会正确转义。
+    (这里原先写的是当时那台机器的完整路径 —— 它**已经在这台机器上踩过**,
+     所以这个坑不是假设。但路径本身不必留在仓库里:换个目录就过期了,
+     而仓库要公开。)
     """
     raw = settings.DATABASE_URL
     if raw.startswith("sqlite:///"):
@@ -90,7 +92,31 @@ class Database:
             build_async_url(settings),
             echo=False,
             pool_pre_ping=True,
-            # SQLite 文件库不需要连接池扩容;单机场景下连接数不是瓶颈
+            # ⚠️ **连接池容量必须显式给。**
+            #
+            # 这里原先的注释是「SQLite 文件库不需要连接池扩容;单机场景下连接数
+            # 不是瓶颈」—— **2026-10-10 的并发压测把这句话证伪了**:
+            #
+            #     sqlalchemy.exc.TimeoutError: QueuePool limit of size 5 overflow 10
+            #     reached, connection timed out, timeout 30.00
+            #
+            # 默认容量是 15(5 + 10),而一次问答在**检索阶段**要独占一条连接。
+            # 并发一上 20,第 16 个请求就开始排队,排到 `pool_timeout` 才报错 ——
+            # 而那个默认值是 **30 秒**,所以用户看到的是「转半分钟然后 500」。
+            # 压测里它精确对上:服务端 572 次池超时 ↔ 客户端 572 次 HTTP 500。
+            #
+            # 容量按**目标并发数**给:需求的口径是「100 人在线」。20 条常驻
+            # (SQLite 连接很轻,常驻不占什么),另外 100 条应付突发。
+            #
+            # 代价说清楚:这**不是在治本**。真正的毛病是「一次请求从头到尾
+            # 握着连接」,扩池只是把天花板抬到够高。要治本得缩短持有时间
+            # (检索完就还、流式期间不持有),那是另一个改动。
+            pool_size=20,
+            max_overflow=100,
+            # 池子真被打满时,**快点报错**。默认 30 秒意味着用户盯着转圈
+            # 半分钟才等到一个 500 —— 一个 30 秒的 500 比一个 5 秒的 500
+            # 糟得多,而且它掩盖了「是池子满了」这个原因(被当成网络慢)。
+            pool_timeout=10.0,
             connect_args={"check_same_thread": False},
         )
         if str(self.engine.url).startswith("sqlite"):

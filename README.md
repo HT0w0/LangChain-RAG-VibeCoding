@@ -291,6 +291,23 @@ python backend/scripts/prompt_cache_probe.py # prompt 缓存到底命中没有 �
   上根本没有承接它的字段，**这个读数被默默丢掉了**。接上之后才量出结论——
   见 [`docs/PROMPT-CACHE.md`](docs/PROMPT-CACHE.md)。
 
+### 并发压测
+
+上面那些数字全是**单请求、串行**测出来的。回答「很多人一起用会怎样」是另一件事，
+归 [`docs/LOAD-TEST.md`](docs/LOAD-TEST.md)，由 `backend/scripts/loadtest.py` 生成：
+
+```bash
+python backend/scripts/loadtest.py --scenario browse --users 100   # 100 人同时打开页面
+python backend/scripts/loadtest.py --scenario all --write          # 全部场景 + 写文档
+python backend/scripts/loadtest.py --selftest                      # 自检量测原语
+```
+
+它**自己起一个临时环境**（临时库 + 临时 Chroma + 一次性密钥），不碰开发库；
+默认 profile 是 `mock`（不打真实 API，免费可重复），`--profile real` 才是真打百炼。
+
+口径上有两处刻意的取舍，都写在脚本和文档里：**「在线人数」与「并发请求数」是两个数、
+分开报**；**判据赛前定死**（失败率找崩溃点，不是看着曲线挑一个好看的倍数）。
+
 ---
 
 ## 快速开始
@@ -403,7 +420,8 @@ backend/
   tests/
   scripts/      dev.py(一键启动) · seed_data.py(示例数据)
                 check_api.py · smoke_e2e.py · benchmark.py
-                semantic_probe.py · rerank_probe.py · prompt_cache_probe.py
+                loadtest.py(并发压测) · semantic_probe.py
+                rerank_probe.py · prompt_cache_probe.py
 frontend/
   src/
     api/          client · endpoints · sse · citations · errors · chat · types
@@ -412,7 +430,7 @@ frontend/
     pages/        Login · Register · Chat · KnowledgeBases · Users · Metrics · Profile
     store/        auth.tsx(登录状态 + token 还原)
 data/           app.db · chroma/ · uploads/   (gitignored)
-docs/           API-CHECK.md · BENCHMARK.md · PLATFORM-NOTES.md
+docs/           API-CHECK.md · BENCHMARK.md · LOAD-TEST.md · PLATFORM-NOTES.md
                 SEMANTIC-CACHE.md · RERANK-THRESHOLD.md · PROMPT-CACHE.md
 ```
 

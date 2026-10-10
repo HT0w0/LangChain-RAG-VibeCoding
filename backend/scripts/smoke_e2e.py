@@ -156,10 +156,17 @@ def main() -> int:
             "/api/auth/login",
             json={"username": settings.ADMIN_USERNAME, "password": settings.ADMIN_PASSWORD},
         )
-        # 失败信息只回状态码,不回响应体——登录成功的响应体里是一枚 JWT,
-        # 而这个脚本的输出会被贴进作品集材料里。哪怕这枚 token 是用一次性
-        # 密钥签给一个临时库的、真拿去用也没有任何权限,把 token 打进
-        # 截图和日志也是个坏习惯,不该出现在演示脚本里当范例。
+        # **成功的响应体不能打,失败的可以。**
+        #
+        # 这个脚本的输出会被贴进作品集材料里。而**登录成功的响应体里是一枚 JWT** ——
+        # 哪怕它是用一次性密钥签给一个临时库的、真拿去用也没有任何权限，
+        # 把 token 打进截图和日志也是个坏习惯，不该出现在演示脚本里当范例。
+        # 所以成功分支只报状态码；下面失败分支打的 `login.text` 是错误 JSON、
+        # 不含 token。
+        #
+        # （原先这句注释写的是「失败信息只回状态码,不回响应体」—— 说的正好是
+        #  相反的事:状态码那条是给成功分支的,而失败分支确实打了响应体。
+        #  行为一直是对的,错的是注释。）
         if not report.check("管理员登录", login.status_code == 200, f"HTTP {login.status_code}"):
             print(f"        {login.text[:200]}")
             return 1

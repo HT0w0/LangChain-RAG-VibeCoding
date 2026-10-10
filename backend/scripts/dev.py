@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -120,6 +121,22 @@ def check_environment() -> list[str]:
     """
     problems: list[str] = []
 
+    # **Python 依赖检查放在最前面。** 没有它,刚 clone 下来的人双击 `start.bat`
+    # 看到的是子进程里一句 `ModuleNotFoundError: No module named 'fastapi'` ——
+    # 那句话指向现象,不指向「你还没装依赖」这个原因。
+    #
+    # 用 `find_spec` 而不是 try-import:它不真的把包导进来,快得多,而且
+    # 不会因为某个包的导入副作用(建目录、连数据库)而在这时候做多余的事。
+    # 查的是**当前解释器**(这个脚本自己就跑在 venv 里),所以也顺带抓住了
+    # 「装了、但装到了另一个 Python 上」这种情况。
+    missing = [m for m in ("fastapi", "uvicorn", "sqlalchemy") if importlib.util.find_spec(m) is None]
+    if missing:
+        problems.append(
+            f"Python 依赖没装全(缺 {', '.join(missing)})。\n"
+            "      确认你在这个项目自带的虚拟环境里,然后:\n"
+            '      pip install -e ".[dev]" -i https://pypi.tuna.tsinghua.edu.cn/simple'
+        )
+
     if not (PROJECT_ROOT / ".env").exists():
         problems.append(
             "没有 .env。先复制一份并填入百炼的 API Key:\n"
@@ -147,7 +164,7 @@ def check_environment() -> list[str]:
         # 报出来的是 `FileNotFoundError: [WinError 2] 系统找不到指定的文件`,
         # 而那个错**不会说找不到的是什么**,看起来像 vite 没装。
         problems.append(
-            "PATH 上找不到 node。装一个 Node.js 18+(https://nodejs.org/),"
+            "PATH 上找不到 node。装一个 Node.js 22.12+(https://nodejs.org/),"
             "装完重开这个窗口。"
         )
 

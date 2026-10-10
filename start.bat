@@ -31,7 +31,7 @@ if not exist ".venv\Scripts\python.exe" (
     echo.
     echo       python -m venv .venv
     echo       .venv\Scripts\activate
-    echo       pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
+    echo       pip install -e ".[dev]" -i https://pypi.tuna.tsinghua.edu.cn/simple
     echo       copy .env.example .env
     echo.
     echo   Then fill DASHSCOPE_API_KEY in .env and run this file again.

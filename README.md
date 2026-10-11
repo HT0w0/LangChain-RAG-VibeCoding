@@ -35,8 +35,8 @@ cp .env.example .env                                # 填 DASHSCOPE_API_KEY(可�
 cd frontend && npm install && cd ..
 ```
 
-> 上面用的是清华镜像 —— 直连 PyPI 在国内经常卡住（本机实测过：
-> 静默挂起，不报错）。去掉 `-i ...` 也能用，只是慢。
+> 上面用的是清华镜像 —— 直连 PyPI 在国内经常卡住。
+> 去掉 `-i ...` 也能用，只是慢。
 
 **Windows 用户双击 `start.bat` 就行。** 它会检查环境、写入示例商品资料、起后端和
 前端、打开浏览器，并把两个服务的日志按 `[后端]` / `[前端]` 前缀打在一个窗口里，
@@ -97,10 +97,10 @@ pip install -e ".[local]"      # 装上 torch(约 2GB),默认安装不含
 
 服务自己会拦**两道**，但你要知道它们各自管什么：
 
-1. **配置那一道**：`APP_ENV=prod` 时，发现**库里的管理员口令仍是默认值**就
+1. **配置**：`APP_ENV=prod` 时，发现**库里的管理员口令仍是默认值**就
    **拒绝启动**。比对的是库里的哈希而不是配置 —— 因为已存在的账号不会被
    `ensure_admin` 覆盖，**光改 `.env` 是没用的**，得删库重建或用界面上的「修改密码」。
-2. **不看配置的那一道**：只要管理员口令还是默认值，**一切来自其他机器的请求
+2. **不看配置**：只要管理员口令还是默认值，**一切来自其他机器的请求
    一律 503**。这是给「绑了 `0.0.0.0` 却没想到要设 `APP_ENV`」准备的 —— 那道缝
    靠配置堵不住，只能靠「请求从哪来」这个事实。
 
@@ -237,19 +237,12 @@ event: error     data: {code, message, elapsed_ms}
 | `scripts/loadtest.py` | **并发**：100 人同时用会怎样 | [LOAD-TEST.md](docs/LOAD-TEST.md) |
 | `scripts/{semantic,rerank,prompt_cache}_probe.py` | 三个阈值/读数，联网扫出来的 | 各自一节 |
 
-**值得单独说的一件事**：项目前期调研里流传甚广的「OpenAI 兼容端点不支持
-Embedding」**被实测证伪** —— `/v1/embeddings` 完全正常。文档会说错、博客会过时、
-二手结论会互相抄错。所以每个假设在投入使用前都先跑一遍自检。
 
 ```bash
 python backend/scripts/check_api.py            # 平台自检(联网)
 python backend/scripts/benchmark.py            # 本地基准(不联网)
 python backend/scripts/loadtest.py --selftest  # 压测器自检(19 项)
 ```
-
-**并发那一条的结论值得先看**：压测在并发 50 档打出 88% 失败，根因**不是**硬件或
-模型 —— 是 SQLAlchemy 连接池的默认值（15 条）。而代码里当时写着一句断言
-「SQLite 不需要连接池扩容；单机场景下连接数不是瓶颈」。**压测把那句话证伪了。**
 
 ---
 
